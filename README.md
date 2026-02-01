@@ -1,45 +1,48 @@
-# NDVI-Viewer
+# SafraSmart NDVI (Flask)
 
-Monitor Vegetation Health by Viewing & Comparing NDVI Values Through Time and Location with Sentinel-2 Satellite Images on The Fly!
-Streamlit App: https://ndvi-viewer.streamlit.app/
+Aplicação web para visualizar NDVI por talhão a partir de shapefiles (.zip), com mapa interativo e métricas básicas por polígono.
 
-### User guide
+## Requisitos
 
-- Create shapefile of your area of interest in GeoJSON format by going to [geojson.io](https://geojson.io/) and drawing polygon shapes then exporting it to your local machine. From there you can drag-and-drop the GeoJSON file to the app upload section and it'll serve as area of interest to which all images will be clipped.
-- Select Date Range: Pick the dates that you wish to compare NDVI values for. The app will calculate a 7-days range going back from each of the dates you picked.
-- Select Cloud Coverate Rate: Set the cloude coverage value for better quality images or for larger dataset in your image collection.
-- Additionally, for people with colorblind disability, it is possible to pick a color palette that's colorblind friendly with most common colorblindness types.
+- Python 3.9+
+- Google Earth Engine (EE) configurado
+- Dependências do `requirements.txt`
 
-### Preview:
+## Instalação
 
-![](https://www.pixenli.com/image/MeljR-zA)
-
-### Note:
-
-The app is hosted on Streamlit Cloud for free and has resource limit (1 GB), sometimes the app may crash when exceeding the limit (too many operations).
-
-If the app crashes, it needs to be rebooted on dev end so DM me or rise an issue, no other options except deploying to a paid platform with padi resource increases.
-
-### Project structure
-
-```
-  ├── .github
-  │   └── Contributing / PR template
-  ├── .gitignore
-  ├── app.py
-  ├── requirements.txt
-  └── README
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
+## Variáveis de ambiente
 
-### About
+- `EE_SERVICE_ACCOUNT_JSON` (opcional): JSON completo da service account
+- `EE_SERVICE_ACCOUNT_FILE` (opcional): caminho para arquivo JSON da service account
+- `PORT` (opcional): porta do Flask (default 8000)
+- `CEM_OVERLAY_SIMPLIFY_TOLERANCE` (opcional): tolerância de simplificação do overlay
+- `CEM_CLIP_BATCH_THRESHOLD` (opcional): limite de features para recorte em lotes
 
-This project was first developed as a submission to the Environemental Data Challenge of [Global Hack Week: Data](https://ghw.mlh.io/) by [Major League Hacking](https://github.com/MLH). 
+> Se nenhuma credencial for informada, o app tenta `ee.Initialize()` padrão.
 
-![](https://www.pixenli.com/image/Hn1xkB-6)
+## Como rodar
 
-### Credit
+```bash
+python app_flask.py
+```
 
-The app was developped by [IndigoWizard](https://github.com/IndigoWizard) using; Streamlit, Google Earth Engine Python API, geemap, Folium. Agriculture icons created by <a href="https://www.flaticon.com/free-icons/agriculture" title="agriculture icons">dreamicons - Flaticon</a>
+Acesse: `http://localhost:8000`
 
-**Contributors**: [Emmarie-Ahtunan](https://github.com/Emmarie-Ahtunan)
+## Estrutura
+
+- `app_flask.py`: backend Flask + rotas
+- `templates/`: HTML do dashboard
+- `static/`: CSS
+- `smartgreen-dashboard.html`: build estático (referência)
+
+## Observações
+
+- O NDVI é calculado com imagens Sentinel‑2 (L2A) via Earth Engine.
+- Valores negativos aparecem em cinza (faixa “sem dado/negativo”).
+- O overlay do shapefile é simplificado apenas para performance visual.

@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SafraSmart - NDVI</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <!-- Static/legacy dashboard layout -->
+    <div class="dashboard">
+      <!-- Top bar -->
+      <div class="topbar">
+        <div class="logo">
+          <span>🌿</span>
+          SafraSmart
+        </div>
+        <div class="status-indicator">
+          <div class="status-item">
+            <div class="status-dot"></div>
+            <span>API Online</span>
+          </div>
+          <div class="status-item">
+            <span>📅 {{ updated_date }}</span>
+          </div>
+          <button class="refresh-btn" type="button" onclick="window.location.reload()">
+            <span>🔄</span>
+            Atualizar
+          </button>
+        </div>
+      </div>
+
+      <div style="padding: 1.5rem 2rem 0;">
+        <!-- KPI row -->
+        <div class="kpi-section">
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <div class="kpi-icon green">🌱</div>
+              <div class="kpi-label">NDVI Médio</div>
+            </div>
+            <div class="kpi-value">0.72</div>
+            <div class="kpi-status">✓ Saudável</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <div class="kpi-icon blue">📍</div>
+              <div class="kpi-label">Talhões</div>
+            </div>
+            <div class="kpi-value">{{ talhoes_count or '--' }}</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <div class="kpi-icon purple">☁️</div>
+              <div class="kpi-label">Nuvem Média</div>
+            </div>
+            <div class="kpi-value">{{ cloud_pixel_percentage }}%</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <div class="kpi-icon orange">🛰️</div>
+              <div class="kpi-label">Última Imagem</div>
+            </div>
+            <div class="kpi-value">{{ updated_date }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="main-content">
+        <div>
+          <!-- Upload + controls -->
+          <div class="form-card">
+            <form method="post" action="/submit" enctype="multipart/form-data" class="form-grid">
+              <div>
+                <label for="cloud_pixel_percentage">Cobertura de nuvens</label>
+                <input type="range" id="cloud_pixel_percentage" name="cloud_pixel_percentage" min="5" max="100" step="5" value="{{ cloud_pixel_percentage }}" />
+              </div>
+              <div>
+                <label for="aoi_files">Shapefile (.zip)</label>
+                <input type="file" id="aoi_files" name="aoi_files" accept=".zip" />
+              </div>
+              <div>
+                <label for="accessibility">Paleta</label>
+                <select id="accessibility" name="accessibility">
+                  {% for option in ['Normal','Deuteranopia','Protanopia','Tritanopia','Achromatopsia'] %}
+                    <option value="{{ option }}" {% if accessibility == option %}selected{% endif %}>{{ option }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div>
+                <label for="initial_date">Data inicial</label>
+                <input type="date" id="initial_date" name="initial_date" value="{{ initial_date }}" />
+              </div>
+              <div>
+                <label for="updated_date">Data atualizada</label>
+                <input type="date" id="updated_date" name="updated_date" value="{{ updated_date }}" />
+              </div>
+              <div>
+                <label>&nbsp;</label>
+                <button type="submit" class="primary">Gerar mapa</button>
+              </div>
+            </form>
+
+            {% if form_errors %}
+              <div class="errors">
+                {% for err in form_errors %}
+                  <div class="error">{{ err }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+
+          <!-- Map + legend -->
+          <div class="map-container">
+            <div class="map-controls">
+              <button class="map-control-btn active">📊 NDVI</button>
+              <button class="map-control-btn">🖼️ RGB</button>
+              <button class="map-control-btn">📐 Talhões</button>
+            </div>
+
+            {% if map_html %}
+              <div class="map-wrap">{{ map_html | safe }}</div>
+            {% else %}
+              <div class="map-wrap" style="display:flex;align-items:center;justify-content:center;color:var(--muted);">Envie um shapefile para gerar o mapa.</div>
+            {% endif %}
+
+            <!-- NDVI legend -->
+            <div class="legend">
+              <div class="legend-title">Índice NDVI</div>
+              <div class="legend-item">
+                <div class="legend-color" style="background: {{ reclassified_ndvi_palette[6] }};"></div>
+                <span>0.7 - 1.0 Saudável</span>
+              </div>
+              <div class="legend-item">
+                <div class="legend-color" style="background: {{ reclassified_ndvi_palette[4] }};"></div>
+                <span>0.5 - 0.7 Médio</span>
+              </div>
+              <div class="legend-item">
+                <div class="legend-color" style="background: {{ reclassified_ndvi_palette[0] }};"></div>
+                <span>0.0 - 0.5 Alerta</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="side-panel">
+          <!-- Selected polygon info -->
+          <div class="panel-card">
+            <div class="panel-title">📍 Talhão selecionado</div>
+            <div class="info-row">
+              <span class="info-label">Área</span>
+              <span class="info-value">-- ha</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">NDVI Atual</span>
+              <span class="info-value">--</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Status</span>
+              <span class="info-value">--</span>
+            </div>
+          </div>
+
+          <!-- Placeholder chart -->
+          <div class="panel-card">
+            <div class="panel-title">📈 Histórico NDVI (60 dias)</div>
+            <div class="chart-container" style="display:flex;align-items:center;justify-content:center;color:var(--muted);">
+              Gráfico em breve
+            </div>
+          </div>
+
+          <!-- Alerts -->
+          <div class="panel-card">
+            <div class="panel-title">🚨 Alertas Recentes</div>
+            <div class="alert-item">
+              <div class="alert-time">Há 15 min</div>
+              <div class="alert-message">Talhão com NDVI abaixo do esperado.</div>
+            </div>
+            <div class="alert-item">
+              <div class="alert-time">Há 2 horas</div>
+              <div class="alert-message">Possível estresse hídrico detectado.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

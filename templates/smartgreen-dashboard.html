@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SafraSmart - NDVI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <!-- Main dashboard layout -->
+    <div class="dashboard">
+      <!-- Top bar -->
+      <div class="topbar">
+        <div class="logo">
+          <span>🌿</span>
+          SafraSmart
+        </div>
+        <div class="status-indicator">
+          <div class="status-item">
+            <div class="status-dot"></div>
+            <span>API Online</span>
+          </div>
+          <div class="status-item">
+            <span>📍 {{ region or '--' }}</span>
+          </div>
+          <button class="refresh-btn" type="button" onclick="window.location.reload()">
+            <span>🔄</span>
+            Atualizar
+          </button>
+        </div>
+      </div>
+
+      <div style="padding: 1.5rem 2rem 0;">
+        <!-- KPI row -->
+        <div class="kpi-section">
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <div class="kpi-icon green">🌱</div>
+              <div class="kpi-label">Cultura</div>
+            </div>
+            <div class="kpi-value" id="kpiCrop">{{ crop or '--' }}</div>
+            <div style="margin-top:0.5rem;">
+              <select id="cropSelect" style="width:100%;">
+                <option value="Cafe">Café</option>
+                <option value="Cana-de-açucar">Cana-de-açúcar</option>
+                <option value="Soja/Milho">Soja/Milho</option>
+                <option value="Pastagem">Pastagem</option>
+                <option value="Citros">Citros</option>
+              </select>
+            </div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <div class="kpi-icon blue">📍</div>
+              <div class="kpi-label">Talhões</div>
+            </div>
+            <div class="kpi-value">{{ talhoes_count or '--' }}</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <div class="kpi-icon purple">📅</div>
+              <div class="kpi-label">Data Base</div>
+            </div>
+            <div class="kpi-value" id="kpiDate">{{ selected_date or '--' }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="main-content">
+        <div>
+          <!-- Date controls -->
+          <div class="form-card">
+            <div class="form-grid">
+              <div>
+                <label>Data selecionada</label>
+                <div class="slider-meta">
+                  <span id="sliderDate">--</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Map + legend -->
+          <div class="map-container">
+            <div class="map-wrap" id="map"></div>
+            <!-- Loading overlay -->
+            <div class="map-loading" id="mapLoading">
+              <div class="map-loading-card">
+                <div class="spinner"></div>
+                <div class="map-loading-text">Carregando NDVI...</div>
+              </div>
+            </div>
+            <!-- NDVI legend -->
+            <div class="legend">
+              <div class="legend-title">Índice NDVI</div>
+              <div class="legend-item">
+                <div class="legend-color" style="background:#22c55e;"></div>
+                <span>0.7 - 1.0 Saudável</span>
+              </div>
+              <div class="legend-item">
+                <div class="legend-color" style="background:#fb923c;"></div>
+                <span>0.5 - 0.7 Médio</span>
+              </div>
+            <div class="legend-item">
+              <div class="legend-color" style="background:#ef4444;"></div>
+              <span>0.0 - 0.5 Alerta</span>
+            </div>
+            <div class="legend-item">
+              <div class="legend-color" style="background:#6b7280;"></div>
+              <span>&lt; 0.0 Sem dado / negativo</span>
+            </div>
+          </div>
+          </div>
+        </div>
+
+        <div class="side-panel">
+          <!-- Selected polygon info -->
+          <div class="panel-card">
+            <div class="panel-title">📍 Talhão selecionado</div>
+            <div class="info-row">
+              <span class="info-label">Área</span>
+              <span class="info-value" id="talhaoArea">-- ha</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">NDVI Atual</span>
+              <span class="info-value" id="talhaoNdvi">--</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Status</span>
+              <span class="info-value" id="talhaoStatus">--</span>
+            </div>
+            <div class="crop-description" id="cropDescription">
+              <div class="crop-description-title">Descrição da cultura</div>
+              <div class="crop-desc-tip">Selecione uma cultura para ver a interpretação do NDVI.</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+      // Dashboard client logic (map + data fetch).
+      const jobId = "{{ job_id }}";
+      const cropSelect = document.getElementById("cropSelect");
+      const kpiCrop = document.getElementById("kpiCrop");
+      const kpiDate = document.getElementById("kpiDate");
+      const sliderDate = document.getElementById("sliderDate");
+      const mapLoading = document.getElementById("mapLoading");
+      let ndviFirstLoadDone = false;
+
+      const talhaoArea = document.getElementById("talhaoArea");
+      const talhaoNdvi = document.getElementById("talhaoNdvi");
+      const talhaoStatus = document.getElementById("talhaoStatus");
+      const cropDescription = document.getElementById("cropDescription");
+
+      let ndviLayer = null;
+      let ndviClassLayer = null;
+      let talhoesLayer = null;
+      let selectedFeatureLayer = null;
+      let currentDate = "{{ selected_date or '' }}";
+      const baseDate = "{{ base_date or '' }}";
+
+      const map = L.map("map", { zoomControl: true });
+      const imagery = L.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        {
+          maxZoom: 19,
+          attribution: "Tiles © Esri"
+        }
+      ).addTo(map);
+
+      const layerControl = L.control.layers(
+        { "Satélite": imagery },
+        {},
+        { collapsed: false }
+      ).addTo(map);
+
+      function setNdviTiles(rawUrl, classUrl) {
+        if (!ndviFirstLoadDone) {
+          setMapLoading(true);
+        }
+        if (ndviLayer) {
+          map.removeLayer(ndviLayer);
+          layerControl.removeLayer(ndviLayer);
+        }
+        if (ndviClassLayer) {
+          map.removeLayer(ndviClassLayer);
+          layerControl.removeLayer(ndviClassLayer);
+        }
+        ndviLayer = L.tileLayer(rawUrl, { opacity: 0.55 });
+        ndviClassLayer = L.tileLayer(classUrl, { opacity: 0.9 });
+        // Start with class layer visible and raw unchecked by default.
+        ndviClassLayer.addTo(map);
+        layerControl.addOverlay(ndviLayer, "NDVI Raw");
+        layerControl.addOverlay(ndviClassLayer, "NDVI Classificado");
+
+        ndviClassLayer.on("loading", () => {
+          if (!ndviFirstLoadDone) setMapLoading(true);
+        });
+        ndviClassLayer.on("load", () => {
+          if (!ndviFirstLoadDone) {
+            setMapLoading(false);
+            ndviFirstLoadDone = true;
+          }
+        });
+        ndviClassLayer.on("tileerror", () => {
+          if (!ndviFirstLoadDone) {
+            setMapLoading(false);
+          }
+        });
+      }
+
+      function setMapLoading(state) {
+        if (!mapLoading) return;
+        mapLoading.classList.toggle("active", state);
+      }
+
+      function updateTalhaoInfo(data) {
+        talhaoArea.textContent = `${data.area_ha.toFixed(2)} ha`;
+        talhaoNdvi.textContent = data.ndvi.toFixed(3);
+        talhaoStatus.textContent = data.status;
+      }
+
+      const CROP_DESCRIPTIONS = {
+        "Cana-de-açucar": {
+          title: "🌱 CANA-DE-AÇÚCAR",
+          rows: [
+            ["< 0.30", "Solo exposto / falha grave"],
+            ["0.30 – 0.50", "Desenvolvimento inicial"],
+            ["0.50 – 0.70", "Crescimento ativo"],
+            ["0.70 – 0.85", "Alto vigor"],
+            ["> 0.85", "Fechamento total / saturação"]
+          ],
+          tip: "📌 Cana madura geralmente fica 0.75 – 0.85"
+        },
+        "Cafe": {
+          title: "☕ CAFÉ",
+          rows: [
+            ["< 0.40", "Estresse / falha"],
+            ["0.40 – 0.55", "Vigor baixo"],
+            ["0.55 – 0.70", "Vigor médio"],
+            ["0.70 – 0.82", "Vigor alto"],
+            ["> 0.82", "Copa muito densa"]
+          ],
+          tip: "📌 Café produtivo saudável geralmente fica 0.65 – 0.80"
+        },
+        "Soja/Milho": {
+          title: "🌽 SOJA / MILHO",
+          rows: [
+            ["< 0.30", "Emergência / falha"],
+            ["0.30 – 0.50", "Vegetativo inicial"],
+            ["0.50 – 0.75", "Crescimento forte"],
+            ["0.75 – 0.90", "Pico vegetativo"],
+            ["> 0.90", "Saturação (pouco ganho de informação)"]
+          ],
+          tip: "📌 Soja em R1-R3 pode chegar a 0.80 – 0.90"
+        },
+        "Pastagem": {
+          title: "🌾 PASTAGEM",
+          rows: [
+            ["< 0.35", "Degradada"],
+            ["0.35 – 0.55", "Baixa biomassa"],
+            ["0.55 – 0.70", "Boa condição"],
+            ["0.70 – 0.85", "Alta biomassa"],
+            ["> 0.85", "Muito densa"]
+          ],
+          tip: "📌 Pastagem boa normalmente 0.60 – 0.75"
+        },
+        "Citros": {
+          title: "🍊 CITROS",
+          rows: [
+            ["< 0.45", "Estresse"],
+            ["0.45 – 0.60", "Vigor médio"],
+            ["0.60 – 0.75", "Boa condição"],
+            ["0.75 – 0.85", "Copa fechada"],
+            ["> 0.85", "Saturação"]
+          ],
+          tip: "📌 Pomar saudável costuma ficar 0.65 – 0.80"
+        }
+      };
+
+      function renderCropDescription(crop) {
+        if (!cropDescription) return;
+        const data = CROP_DESCRIPTIONS[crop];
+        if (!data) {
+          cropDescription.innerHTML = `
+            <div class="crop-description-title">Descrição da cultura</div>
+            <div class="crop-desc-tip">Selecione uma cultura para ver a interpretação do NDVI.</div>
+          `;
+          return;
+        }
+        const rowsHtml = data.rows
+          .map(
+            ([range, label]) => `
+              <div class="crop-desc-row">
+                <span class="crop-desc-range">${range}</span>
+                <span class="crop-desc-label">${label}</span>
+              </div>
+            `
+          )
+          .join("");
+        cropDescription.innerHTML = `
+          <div class="crop-description-title">${data.title}</div>
+          <div class="crop-desc-header">
+            <span>NDVI</span>
+            <span>Interpretação</span>
+          </div>
+          ${rowsHtml}
+          <div class="crop-desc-tip">${data.tip}</div>
+        `;
+      }
+
+      function applySelectedStyle(layer) {
+        if (talhoesLayer && typeof talhoesLayer.resetStyle === "function") {
+          talhoesLayer.resetStyle();
+        } else if (selectedFeatureLayer) {
+          selectedFeatureLayer.setStyle({ color: "#FFD166", weight: 1, fillOpacity: 0.0 });
+        }
+        selectedFeatureLayer = layer;
+        selectedFeatureLayer.setStyle({ color: "#22c55e", weight: 2, fillOpacity: 0.1 });
+        if (typeof selectedFeatureLayer.bringToFront === "function") {
+          selectedFeatureLayer.bringToFront();
+        }
+      }
+
+      function explodeGeojson(data) {
+        if (!data || !Array.isArray(data.features)) return data;
+        const exploded = [];
+        data.features.forEach((feature) => {
+          if (!feature || !feature.geometry) return;
+          const geom = feature.geometry;
+          if (geom.type === "MultiPolygon" && Array.isArray(geom.coordinates)) {
+            geom.coordinates.forEach((coords, partIndex) => {
+              exploded.push({
+                type: "Feature",
+                properties: { ...(feature.properties || {}), __part: partIndex },
+                geometry: { type: "Polygon", coordinates: coords }
+              });
+            });
+          } else {
+            exploded.push(feature);
+          }
+        });
+        return { ...data, features: exploded };
+      }
+
+      function pointInRing(point, ring) {
+        let inside = false;
+        for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+          const xi = ring[i].lng;
+          const yi = ring[i].lat;
+          const xj = ring[j].lng;
+          const yj = ring[j].lat;
+          const intersect = (yi > point.lat) !== (yj > point.lat) &&
+            point.lng < ((xj - xi) * (point.lat - yi)) / (yj - yi + 0.0) + xi;
+          if (intersect) inside = !inside;
+        }
+        return inside;
+      }
+
+      function pointInLatLngs(point, latlngs) {
+        if (!Array.isArray(latlngs) || latlngs.length === 0) return false;
+        if (latlngs[0].lat !== undefined) {
+          return pointInRing(point, latlngs);
+        }
+        if (Array.isArray(latlngs[0]) && latlngs[0][0] && latlngs[0][0].lat !== undefined) {
+          if (!pointInRing(point, latlngs[0])) return false;
+          for (let i = 1; i < latlngs.length; i++) {
+            if (pointInRing(point, latlngs[i])) return false;
+          }
+          return true;
+        }
+        for (const poly of latlngs) {
+          if (pointInLatLngs(point, poly)) return true;
+        }
+        return false;
+      }
+
+      function pickBestLayerAtPoint(point) {
+        if (!talhoesLayer) return null;
+        let bestLayer = null;
+        let bestArea = Infinity;
+        talhoesLayer.getLayers().forEach((layer) => {
+          const latlngs = layer.getLatLngs();
+          if (!pointInLatLngs(point, latlngs)) return;
+          const bounds = layer.getBounds();
+          const area = Math.abs((bounds.getNorth() - bounds.getSouth()) * (bounds.getEast() - bounds.getWest()));
+          if (area < bestArea) {
+            bestArea = area;
+            bestLayer = layer;
+          }
+        });
+        return bestLayer;
+      }
+
+      async function loadTalhoes() {
+        const res = await fetch(`/api/job/${jobId}/talhoes`);
+        const data = await res.json();
+        if (!data || !data.features) return;
+
+        const exploded = explodeGeojson(data);
+
+        exploded.features.forEach((feature, index) => {
+          feature.properties = feature.properties || {};
+          feature.properties.__index = feature.properties.__index ?? feature.properties.id ?? index;
+        });
+
+        if (talhoesLayer) {
+          map.removeLayer(talhoesLayer);
+        }
+        talhoesLayer = L.geoJSON(exploded, {
+          style: () => ({
+            color: "#FFD166",
+            weight: 1,
+            fillOpacity: 0.0
+          })
+        }).addTo(map);
+
+        map.on("click", async (event) => {
+          const picked = pickBestLayerAtPoint(event.latlng);
+          if (!picked) return;
+          const idx = picked.feature && picked.feature.properties
+            ? picked.feature.properties.__index
+            : undefined;
+          if (typeof idx !== "number") return;
+          applySelectedStyle(picked);
+          if (!currentDate) return;
+          const statsRes = await fetch(
+            `/api/job/${jobId}/talhao_stats?index=${idx}&date=${encodeURIComponent(currentDate)}`
+          );
+          const stats = await statsRes.json();
+          if (!stats || stats.error) return;
+          updateTalhaoInfo(stats);
+        });
+      }
+
+      async function loadTiles(dateStr) {
+        if (!dateStr) return;
+        if (!ndviFirstLoadDone) {
+          setMapLoading(true);
+        }
+        const res = await fetch(`/api/job/${jobId}/tiles?date=${encodeURIComponent(dateStr)}`);
+        const tiles = await res.json();
+        if (tiles && tiles.ndvi && tiles.ndvi_class) {
+          setNdviTiles(tiles.ndvi, tiles.ndvi_class);
+          currentDate = tiles.date;
+          kpiDate.textContent = tiles.date;
+          sliderDate.textContent = tiles.date;
+        } else if (tiles && tiles.ndvi) {
+          setNdviTiles(tiles.ndvi, tiles.ndvi);
+          currentDate = tiles.date;
+          kpiDate.textContent = tiles.date;
+          sliderDate.textContent = tiles.date;
+        } else if (!ndviFirstLoadDone) {
+          setMapLoading(false);
+        }
+      }
+
+
+      cropSelect.addEventListener("change", async () => {
+        const crop = cropSelect.value;
+        await fetch(`/api/job/${jobId}/set_crop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: `crop=${encodeURIComponent(crop)}`
+        });
+        kpiCrop.textContent = crop;
+        renderCropDescription(crop);
+      });
+
+
+      (async () => {
+        const metaRes = await fetch(`/api/job/${jobId}/meta`);
+        const meta = await metaRes.json();
+        if (meta.crop) {
+          cropSelect.value = meta.crop;
+          kpiCrop.textContent = meta.crop;
+          renderCropDescription(meta.crop);
+        } else {
+          renderCropDescription(cropSelect.value);
+        }
+        if (meta.bbox && meta.bbox.length === 4) {
+          const bounds = L.latLngBounds(
+            [meta.bbox[0], meta.bbox[1]],
+            [meta.bbox[2], meta.bbox[3]]
+          );
+          map.fitBounds(bounds);
+          map.setMaxBounds(bounds);
+          map.options.maxBoundsViscosity = 1.0;
+        } else {
+          map.setView([-14.235, -51.925], 4);
+        }
+        await loadTiles(currentDate || meta.date || baseDate);
+        await loadTalhoes();
+      })();
+    </script>
+  </body>
+</html>

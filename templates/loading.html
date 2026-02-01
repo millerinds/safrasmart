@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NDVI Viewer - Processando</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body class="loading-screen">
+    <!-- Progress / loading copy -->
+    <div class="loading-center">
+      <div class="spinner"></div>
+      <div class="loading-text" id="loadingText">Iniciando processamento…</div>
+    </div>
+
+    <!-- Result placeholder (unused in final UI) -->
+    <div id="resultWrap" class="loading-result"></div>
+
+    <script>
+      // Poll job status and redirect when ready.
+      const jobId = "{{ job_id }}";
+      const loadingText = document.getElementById("loadingText");
+      const resultWrap = document.getElementById("resultWrap");
+
+      const steps = [
+        "Recebendo arquivo…",
+        "Lendo shapefile…",
+        "Criando bounding box…",
+        "Calculando NDVI…",
+        "Aplicando recorte nos talhões…",
+        "Renderizando mapa…"
+      ];
+      let stepIdx = 0;
+      let progress = Math.floor(20 + Math.random() * 11);
+      let progressTimer = null;
+      let phase = "steps";
+
+      function startProgress(label) {
+        loadingText.textContent = `${label} ${progress}%`;
+        progressTimer = setInterval(() => {
+          if (progress < 99) {
+            progress += 1;
+            loadingText.textContent = `${label} ${progress}%`;
+          }
+        }, 600);
+      }
+
+      const stepTimer = setInterval(() => {
+        if (stepIdx < steps.length) {
+          loadingText.textContent = steps[stepIdx];
+          stepIdx += 1;
+          if (stepIdx === steps.length) {
+            clearInterval(stepTimer);
+            phase = "progress1";
+            startProgress("Finalizando…");
+          }
+        }
+      }, 1500);
+
+      async function poll() {
+        const res = await fetch(`/api/job/${jobId}/meta`);
+        if (!res.ok) {
+          setTimeout(poll, 2000);
+          return;
+        }
+        const meta = await res.json();
+        if (meta.errors && meta.errors.length) {
+          if (progressTimer) clearInterval(progressTimer);
+          loadingText.textContent = meta.errors[0];
+          return;
+        }
+        if (!meta.done) {
+          if (progress >= 99 && phase === "progress1") {
+            phase = "progress2";
+            progress = Math.floor(20 + Math.random() * 11);
+            if (progressTimer) clearInterval(progressTimer);
+            startProgress("Aplicando alterações…");
+          }
+          setTimeout(poll, 2000);
+          return;
+        }
+        if (progressTimer) {
+          clearInterval(progressTimer);
+        }
+        if (progress < 100) {
+          const fastTimer = setInterval(() => {
+            if (progress >= 100) {
+              clearInterval(fastTimer);
+              window.location.href = `/view/${jobId}`;
+              return;
+            }
+            progress += 5;
+            if (progress > 100) progress = 100;
+            loadingText.textContent = `Finalizando… ${progress}%`;
+          }, 50);
+        } else {
+          window.location.href = `/view/${jobId}`;
+        }
+      }
+
+      poll();
+    </script>
+  </body>
+</html>

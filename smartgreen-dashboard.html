@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SafraSmart - NDVI</title>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg-start: #0f172a;
+      --bg-end: #1e293b;
+      --panel: rgba(30, 41, 59, 0.6);
+      --panel-strong: rgba(30, 41, 59, 0.95);
+      --border: rgba(148, 163, 184, 0.1);
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #22c55e;
+      --accent-blue: #3b82f6;
+      --danger: #ef4444;
+    }
+    body {
+      font-family: "Inter", sans-serif;
+      background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%);
+      color: var(--text);
+      overflow-x: hidden;
+    }
+    .dashboard { min-height: 100vh; display: flex; flex-direction: column; }
+    .topbar {
+      background: rgba(30, 41, 59, 0.8);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex; justify-content: space-between; align-items: center;
+      position: sticky; top: 0; z-index: 1000;
+    }
+    .logo {
+      display: flex; align-items: center; gap: 0.75rem;
+      font-size: 1.5rem; font-weight: 700;
+      background: linear-gradient(135deg, #22c55e 0%, #10b981 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .status-indicator { display: flex; align-items: center; gap: 2rem; }
+    .status-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .refresh-btn {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      border: none; padding: 0.5rem 1.25rem; border-radius: 8px; color: white;
+      font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;
+      transition: all 0.3s ease;
+    }
+    .refresh-btn:hover { transform: translateY(-2px); box-shadow: 0 10px 20px rgba(59,130,246,0.3); }
+
+    .main-content {
+      flex: 1; display: grid; grid-template-columns: 1fr 380px;
+      gap: 1.5rem; padding: 1.5rem 2rem;
+    }
+
+    .kpi-section {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 1rem; margin-bottom: 1.5rem;
+    }
+    .kpi-card {
+      background: var(--panel); backdrop-filter: blur(10px);
+      border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem;
+      transition: all 0.3s ease;
+    }
+    .kpi-card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px rgba(0,0,0,0.3); border-color: rgba(34,197,94,0.3); }
+    .kpi-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
+    .kpi-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; }
+    .kpi-icon.green { background: rgba(34,197,94,0.2); }
+    .kpi-icon.blue { background: rgba(59,130,246,0.2); }
+    .kpi-icon.purple { background: rgba(168,85,247,0.2); }
+    .kpi-icon.orange { background: rgba(251,146,60,0.2); }
+    .kpi-label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .kpi-value { font-size: 2rem; font-weight: 700; margin-bottom: 0.25rem; }
+
+    .map-container {
+      background: var(--panel); backdrop-filter: blur(10px);
+      border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+      position: relative; height: calc(100vh - 280px);
+    }
+    #map { width: 100%; height: 100%; }
+    .legend {
+      position: absolute; bottom: 1rem; right: 1rem;
+      background: var(--panel-strong); backdrop-filter: blur(10px);
+      border: 1px solid rgba(148,163,184,0.2); border-radius: 8px; padding: 1rem; z-index: 1000;
+    }
+    .legend-title { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .legend-item { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; font-size: 0.75rem; }
+    .legend-color { width: 20px; height: 12px; border-radius: 2px; }
+
+    .side-panel { display: flex; flex-direction: column; gap: 1.5rem; }
+    .panel-card {
+      background: var(--panel); backdrop-filter: blur(10px);
+      border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem;
+    }
+    .panel-title { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+    .info-row { display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid rgba(148,163,184,0.1); }
+    .info-label { color: var(--muted); font-size: 0.875rem; }
+    .info-value { font-weight: 600; }
+
+    .form-card {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+      padding: 1.25rem; margin-bottom: 1.5rem;
+    }
+    .form-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+    label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    input[type="date"], select, input[type="range"] {
+      width: 100%; background: rgba(15,23,42,0.6); color: var(--text);
+      border: 1px solid rgba(148,163,184,0.2); border-radius: 8px; padding: 0.5rem 0.75rem;
+    }
+    .primary {
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      border: none; padding: 0.6rem 1rem; border-radius: 8px; color: white; font-weight: 600; cursor: pointer;
+    }
+    .slider-meta { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--muted); margin-top: 0.35rem; }
+
+    .progress-card {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+      padding: 1rem 1.25rem;
+    }
+    .progress-row {
+      display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem;
+    }
+    .progress-label { font-size: 0.875rem; color: var(--muted); }
+    .progress-bar {
+      flex: 1; height: 8px; border-radius: 999px; background: rgba(148,163,184,0.2); overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%; width: 0%; background: linear-gradient(135deg, #22c55e 0%, #10b981 100%);
+      transition: width 0.2s ease;
+    }
+    .progress-percent { font-size: 0.75rem; color: var(--muted); min-width: 44px; text-align: right; }
+    .progress-list {
+      max-height: 220px; overflow: auto; border-top: 1px solid rgba(148,163,184,0.1); padding-top: 0.75rem;
+    }
+    .progress-item {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 0.75rem; color: var(--muted); padding: 0.25rem 0;
+    }
+    .progress-item.done { color: var(--text); }
+
+    @media (max-width: 1024px) {
+      .main-content { grid-template-columns: 1fr; }
+      .kpi-section { grid-template-columns: repeat(2, 1fr); }
+      .form-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Standalone dashboard (static build) -->
+  <div class="dashboard">
+    <!-- Top bar -->
+    <div class="topbar">
+      <div class="logo">
+        <span>🌿</span>
+        SafraSmart
+      </div>
+      <div class="status-indicator">
+        <div class="status-item"><div class="status-dot"></div><span>API Online</span></div>
+        <div class="status-item"><span id="kpiDateLabel">📅 --</span></div>
+        <button class="refresh-btn" id="refreshBtn"><span>🔄</span>Atualizar</button>
+      </div>
+    </div>
+
+  <div style="padding: 1.5rem 2rem 0;">
+    <!-- KPI row -->
+    <div class="kpi-section">
+        <div class="kpi-card">
+          <div class="kpi-header"><div class="kpi-icon green">🌱</div><div class="kpi-label">Cultura</div></div>
+          <div class="kpi-value" id="kpiCrop">--</div>
+          <div style="margin-top:0.5rem;">
+            <select id="cropSelect" style="width:100%;">
+              <option value="Cafe">Café</option>
+              <option value="Cana-de-acucar">Cana-de-açúcar</option>
+              <option value="Soja/Milho">Soja/Milho</option>
+              <option value="Pastagem">Pastagem</option>
+              <option value="Citros">Citros</option>
+            </select>
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header"><div class="kpi-icon blue">📍</div><div class="kpi-label">Talhões</div></div>
+          <div class="kpi-value" id="kpiTalhoes">--</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header"><div class="kpi-icon purple">📊</div><div class="kpi-label">NDVI Médio</div></div>
+          <div class="kpi-value" id="kpiNdvi">--</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-header"><div class="kpi-icon orange">🛰️</div><div class="kpi-label">Análise Mensal</div></div>
+          <div class="kpi-value" id="kpiMonthly">Aguardando</div>
+          <div style="margin-top:0.5rem;">
+            <button class="primary" id="startMonthly">Iniciar análise</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  <div class="main-content">
+    <div>
+      <!-- Date controls -->
+      <div class="form-card">
+          <div class="form-grid">
+            <div>
+              <label for="datePicker">Data selecionada</label>
+              <input type="date" id="datePicker" />
+            </div>
+            <div>
+              <label for="daySlider">Histórico (30 dias)</label>
+              <input type="range" id="daySlider" min="0" max="29" value="29" />
+              <div class="slider-meta">
+                <span id="sliderDayCount">Dia 30 de 30</span>
+                <span id="sliderDate">--</span>
+              </div>
+            </div>
+            <div>
+              <label>&nbsp;</label>
+              <button class="primary" id="applyDate">Aplicar data</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Map + legend -->
+        <div class="map-container">
+          <div id="map"></div>
+          <!-- NDVI legend -->
+          <div class="legend">
+            <div class="legend-title">Índice NDVI</div>
+            <div class="legend-item"><div class="legend-color" style="background:#22c55e"></div><span>0.7 - 1.0 Saudável</span></div>
+            <div class="legend-item"><div class="legend-color" style="background:#fb923c"></div><span>0.5 - 0.7 Médio</span></div>
+          <div class="legend-item"><div class="legend-color" style="background:#ef4444"></div><span>0.0 - 0.5 Alerta</span></div>
+          <div class="legend-item"><div class="legend-color" style="background:#6b7280"></div><span>&lt; 0.0 Sem dado / negativo</span></div>
+        </div>
+        </div>
+      </div>
+
+    <div class="side-panel">
+      <!-- Selected polygon info -->
+      <div class="panel-card">
+          <div class="panel-title">📍 Talhão selecionado</div>
+          <div class="info-row"><span class="info-label">Área</span><span class="info-value" id="talhaoArea">-- ha</span></div>
+          <div class="info-row"><span class="info-label">NDVI Atual</span><span class="info-value" id="talhaoNdvi">--</span></div>
+          <div class="info-row"><span class="info-label">Status</span><span class="info-value" id="talhaoStatus">--</span></div>
+          <div class="info-row"><span class="info-label">Cultura</span><span class="info-value" id="talhaoCrop">--</span></div>
+          <div class="info-row"><span class="info-label">Descrição</span><span class="info-value" id="talhaoCropDesc">--</span></div>
+        </div>
+
+      <!-- Monthly analysis progress -->
+      <div class="progress-card">
+          <div class="panel-title">⏳ Progresso da análise mensal</div>
+          <div class="progress-row">
+            <div class="progress-label" id="monthlyMessage">Aguardando início da análise mensal.</div>
+            <div class="progress-percent" id="progressPercent">0%</div>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+          <div class="progress-list" id="progressList"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let map = null;
+
+    const daySlider = document.getElementById("daySlider");
+    const sliderDate = document.getElementById("sliderDate");
+    const sliderDayCount = document.getElementById("sliderDayCount");
+    const datePicker = document.getElementById("datePicker");
+    const applyDate = document.getElementById("applyDate");
+    const cropSelect = document.getElementById("cropSelect");
+    const kpiNdvi = document.getElementById("kpiNdvi");
+    const kpiMonthly = document.getElementById("kpiMonthly");
+    const kpiDateLabel = document.getElementById("kpiDateLabel");
+    const monthlyMessage = document.getElementById("monthlyMessage");
+    const startMonthly = document.getElementById("startMonthly");
+    const kpiCrop = document.getElementById("kpiCrop");
+    const kpiTalhoes = document.getElementById("kpiTalhoes");
+
+    const talhaoArea = document.getElementById("talhaoArea");
+    const talhaoNdvi = document.getElementById("talhaoNdvi");
+    const talhaoStatus = document.getElementById("talhaoStatus");
+    const talhaoCrop = document.getElementById("talhaoCrop");
+    const talhaoCropDesc = document.getElementById("talhaoCropDesc");
+    const progressFill = document.getElementById("progressFill");
+    const progressPercent = document.getElementById("progressPercent");
+    const progressList = document.getElementById("progressList");
+
+    const params = new URLSearchParams(window.location.search);
+    const injectedJobId = "";
+    const pathMatch = window.location.pathname.match(/\/view\/([^/]+)/);
+    const jobId = (injectedJobId || params.get("job") || (pathMatch ? pathMatch[1] : "") || "").trim();
+    let seriesData = [];
+    let ndviLayer = null;
+    let ndviClassLayer = null;
+    let talhoesLayer = null;
+    let selectedFeatureLayer = null;
+    let currentDate = null;
+    let isSeriesLoading = false;
+    let monthlyPollTimer = null;
+
+    daySlider.disabled = true;
+
+    if (!jobId) {
+      monthlyMessage.textContent = "Abra este dashboard com ?job=SEU_JOB_ID.";
+    }
+
+    const cropDescriptions = {
+      Cafe: "Foco em vigor vegetativo e uniformidade da lavoura.",
+      "Cana-de-acucar": "Monitoramento de biomassa e rebrota por talhão.",
+      "Soja/Milho": "Acompanhamento de cobertura e estresse hídrico.",
+      Pastagem: "Avaliação de renovação e pressão de pastejo.",
+      Citros: "Identificação de falhas e estresse nutricional."
+    };
+
+    function updateCropDescription(crop) {
+      talhaoCropDesc.textContent = cropDescriptions[crop] || "--";
+    }
+
+    function showError(message) {
+      monthlyMessage.textContent = message;
+      kpiTalhoes.textContent = "--";
+      daySlider.disabled = true;
+      startMonthly.disabled = true;
+      applyDate.disabled = true;
+      resetMonthlyProgress();
+    }
+
+    function resetMonthlyProgress() {
+      progressFill.style.width = "0%";
+      progressPercent.textContent = "0%";
+      progressList.innerHTML = "";
+    }
+
+    function renderMonthlyItems(items) {
+      progressList.innerHTML = "";
+      if (!items || !items.length) {
+        return;
+      }
+      items.forEach((item) => {
+        const itemEl = document.createElement("div");
+        itemEl.className = "progress-item";
+        if (item.ok) {
+          itemEl.textContent = `✔ ${item.date}`;
+          itemEl.classList.add("done");
+        } else if (item.error) {
+          itemEl.textContent = `✖ ${item.date}`;
+        } else {
+          itemEl.textContent = `… ${item.date}`;
+        }
+        progressList.appendChild(itemEl);
+      });
+    }
+
+    // Garantir descrição visível desde o início
+    updateCropDescription(cropSelect.value);
+
+    async function fetchMeta() {
+      const res = await fetch(`/api/job/${jobId}/meta`);
+      if (!res.ok) return null;
+      return res.json();
+    }
+
+    async function waitForJobReady() {
+      const maxAttempts = 30;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const meta = await fetchMeta();
+        if (!meta) {
+          showError("Erro ao carregar dados do job.");
+          return null;
+        }
+        if (meta.errors && meta.errors.length) {
+          showError(meta.errors[0]);
+          return null;
+        }
+        if (meta.done) {
+          if (meta.shapefile_ok !== true) {
+            showError("Shapefile não encontrado no ZIP.");
+            return null;
+          }
+          return meta;
+        }
+        monthlyMessage.textContent = "Processando arquivo... aguarde.";
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+      showError("Tempo esgotado ao processar o shapefile.");
+      return null;
+    }
+
+    function applySelectedStyle(layer) {
+      if (talhoesLayer && typeof talhoesLayer.resetStyle === "function") {
+        talhoesLayer.resetStyle();
+      } else if (selectedFeatureLayer) {
+        selectedFeatureLayer.setStyle({ color: "#FFD166", weight: 1, fillOpacity: 0.0 });
+      }
+      selectedFeatureLayer = layer;
+      selectedFeatureLayer.setStyle({ color: "#22c55e", weight: 2, fillOpacity: 0.1 });
+      if (typeof selectedFeatureLayer.bringToFront === "function") {
+        selectedFeatureLayer.bringToFront();
+      }
+    }
+
+    function explodeGeojson(data) {
+      if (!data || !Array.isArray(data.features)) return data;
+      const exploded = [];
+      data.features.forEach((feature) => {
+        if (!feature || !feature.geometry) return;
+        const geom = feature.geometry;
+        if (geom.type === "MultiPolygon" && Array.isArray(geom.coordinates)) {
+          geom.coordinates.forEach((coords, partIndex) => {
+            exploded.push({
+              type: "Feature",
+              properties: { ...(feature.properties || {}), __part: partIndex },
+              geometry: { type: "Polygon", coordinates: coords }
+            });
+          });
+        } else {
+          exploded.push(feature);
+        }
+      });
+      return { ...data, features: exploded };
+    }
+
+    function pointInRing(point, ring) {
+      let inside = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const xi = ring[i].lng;
+        const yi = ring[i].lat;
+        const xj = ring[j].lng;
+        const yj = ring[j].lat;
+        const intersect = (yi > point.lat) !== (yj > point.lat) &&
+          point.lng < ((xj - xi) * (point.lat - yi)) / (yj - yi + 0.0) + xi;
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
+
+    function pointInLatLngs(point, latlngs) {
+      if (!Array.isArray(latlngs) || latlngs.length === 0) return false;
+      if (latlngs[0].lat !== undefined) {
+        return pointInRing(point, latlngs);
+      }
+      if (Array.isArray(latlngs[0]) && latlngs[0][0] && latlngs[0][0].lat !== undefined) {
+        if (!pointInRing(point, latlngs[0])) return false;
+        for (let i = 1; i < latlngs.length; i++) {
+          if (pointInRing(point, latlngs[i])) return false;
+        }
+        return true;
+      }
+      for (const poly of latlngs) {
+        if (pointInLatLngs(point, poly)) return true;
+      }
+      return false;
+    }
+
+    function pickBestLayerAtPoint(point) {
+      if (!talhoesLayer) return null;
+      let bestLayer = null;
+      let bestArea = Infinity;
+      talhoesLayer.getLayers().forEach((layer) => {
+        const latlngs = layer.getLatLngs();
+        if (!pointInLatLngs(point, latlngs)) return;
+        const bounds = layer.getBounds();
+        const area = Math.abs((bounds.getNorth() - bounds.getSouth()) * (bounds.getEast() - bounds.getWest()));
+        if (area < bestArea) {
+          bestArea = area;
+          bestLayer = layer;
+        }
+      });
+      return bestLayer;
+    }
+
+    function initMap() {
+      if (map) return;
+      map = L.map("map").setView([-14.235, -51.925], 4);
+      L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+        maxZoom: 19,
+        attribution: "Tiles © Esri"
+      }).addTo(map);
+    }
+
+    function setNdviTiles(rawUrl, classUrl) {
+      if (!map) return;
+      if (ndviLayer) map.removeLayer(ndviLayer);
+      if (ndviClassLayer) map.removeLayer(ndviClassLayer);
+      ndviLayer = L.tileLayer(rawUrl, { opacity: 0.55 });
+      ndviClassLayer = L.tileLayer(classUrl, { opacity: 0.9 });
+      ndviClassLayer.addTo(map);
+    }
+
+    async function loadTalhoes() {
+      if (!map) initMap();
+      const res = await fetch(`/api/job/${jobId}/talhoes`);
+      if (!res.ok) {
+        showError("Erro ao carregar talhões. Verifique o shapefile no ZIP.");
+        return false;
+      }
+      const data = await res.json();
+      if (!data || data.error) {
+        showError(data && data.error ? data.error : "Shapefile não encontrado no ZIP.");
+        return false;
+      }
+      if (!data.features || data.features.length === 0) {
+        showError("Shapefile não encontrado no ZIP.");
+        return false;
+      }
+      const exploded = explodeGeojson(data);
+      exploded.features.forEach((feature, index) => {
+        feature.properties = feature.properties || {};
+        feature.properties.__index = feature.properties.__index ?? feature.properties.id ?? index;
+      });
+      talhoesLayer = L.geoJSON(exploded, {
+        style: () => ({ color: "#FFD166", weight: 1, fillOpacity: 0.0 })
+      }).addTo(map);
+
+      map.on("click", async (event) => {
+        const picked = pickBestLayerAtPoint(event.latlng);
+        if (!picked) return;
+        const idx = picked.feature && picked.feature.properties
+          ? picked.feature.properties.__index
+          : undefined;
+        if (typeof idx !== "number") return;
+        applySelectedStyle(picked);
+        const statsRes = await fetch(`/api/job/${jobId}/talhao_stats?index=${idx}&date=${encodeURIComponent(currentDate)}`);
+        const stats = await statsRes.json();
+        if (!stats || stats.error) return;
+        talhaoArea.textContent = `${stats.area_ha.toFixed(2)} ha`;
+        talhaoNdvi.textContent = stats.ndvi.toFixed(3);
+        talhaoStatus.textContent = stats.status;
+      });
+      return true;
+    }
+
+    async function loadTiles(dateStr) {
+      if (!dateStr) return;
+      const res = await fetch(`/api/job/${jobId}/tiles?date=${encodeURIComponent(dateStr)}`);
+      const tiles = await res.json();
+      if (tiles && tiles.ndvi && tiles.ndvi_class) {
+        setNdviTiles(tiles.ndvi, tiles.ndvi_class);
+        currentDate = tiles.date;
+        datePicker.value = tiles.date;
+        sliderDate.textContent = tiles.date;
+        kpiDateLabel.textContent = `📅 ${tiles.date}`;
+      }
+    }
+
+    async function startMonthlyAnalysis(baseDate) {
+      if (isSeriesLoading) return;
+      if (!jobId) return;
+      if (monthlyPollTimer) {
+        clearTimeout(monthlyPollTimer);
+        monthlyPollTimer = null;
+      }
+      isSeriesLoading = true;
+      daySlider.disabled = true;
+      kpiMonthly.textContent = "Processando";
+      monthlyMessage.textContent = "Iniciando análise mensal...";
+      resetMonthlyProgress();
+      startMonthly.disabled = true;
+      applyDate.disabled = true;
+
+      const body = new URLSearchParams({
+        end: baseDate,
+        days: "31",
+      });
+      const res = await fetch(`/api/job/${jobId}/monthly/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        showError(data.error || "Falha ao iniciar análise mensal.");
+        isSeriesLoading = false;
+        return;
+      }
+      pollMonthlyStatus();
+    }
+
+    async function pollMonthlyStatus() {
+      if (!jobId) return;
+      if (monthlyPollTimer) {
+        clearTimeout(monthlyPollTimer);
+        monthlyPollTimer = null;
+      }
+      const res = await fetch(`/api/job/${jobId}/monthly/status`);
+      if (!res.ok) {
+        showError("Erro ao consultar progresso da análise mensal.");
+        isSeriesLoading = false;
+        return;
+      }
+      const data = await res.json();
+      if (data.error) {
+        showError(data.error);
+        isSeriesLoading = false;
+        return;
+      }
+
+      const total = Number(data.total || 0);
+      const completed = Number(data.completed || 0);
+      const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+      monthlyMessage.textContent = data.status === "running"
+        ? `Análise mensal em processamento... ${pct}%`
+        : data.status === "done"
+          ? "Análise mensal concluída."
+          : "Aguardando início da análise mensal.";
+      progressFill.style.width = `${pct}%`;
+      progressPercent.textContent = `${pct}%`;
+      renderMonthlyItems(data.items || []);
+
+      if (data.status === "done") {
+        seriesData = Array.isArray(data.results) ? data.results : [];
+        if (seriesData.length) {
+          daySlider.max = String(seriesData.length - 1);
+          daySlider.value = String(seriesData.length - 1);
+          const last = seriesData[seriesData.length - 1];
+          sliderDate.textContent = last.date;
+          sliderDayCount.textContent = `Dia ${seriesData.length} de ${seriesData.length}`;
+          kpiMonthly.textContent = "Concluída";
+          daySlider.disabled = false;
+        } else {
+          showError("Análise mensal concluída, mas sem dados disponíveis.");
+        }
+        isSeriesLoading = false;
+        startMonthly.disabled = false;
+        applyDate.disabled = false;
+        return;
+      }
+
+      if (data.status === "error") {
+        showError(data.error || "Erro durante a análise mensal.");
+        isSeriesLoading = false;
+        return;
+      }
+
+      monthlyPollTimer = setTimeout(pollMonthlyStatus, 1500);
+    }
+
+    daySlider.addEventListener("input", () => {
+      if (isSeriesLoading) return;
+      const idx = Number(daySlider.value);
+      const item = seriesData[idx];
+      if (!item) return;
+      sliderDate.textContent = item.date;
+      sliderDayCount.textContent = `Dia ${idx + 1} de ${seriesData.length}`;
+      loadTiles(item.date);
+    });
+
+    applyDate.addEventListener("click", () => {
+      if (!datePicker.value) return;
+      loadTiles(datePicker.value);
+      kpiMonthly.textContent = "Aguardando";
+      monthlyMessage.textContent = "Aguardando início da análise mensal.";
+      daySlider.disabled = true;
+      resetMonthlyProgress();
+      seriesData = [];
+      if (monthlyPollTimer) {
+        clearTimeout(monthlyPollTimer);
+        monthlyPollTimer = null;
+      }
+    });
+
+    startMonthly.addEventListener("click", () => {
+      if (!datePicker.value) return;
+      startMonthlyAnalysis(datePicker.value);
+    });
+
+    cropSelect.addEventListener("change", async () => {
+      const crop = cropSelect.value;
+      await fetch(`/api/job/${jobId}/set_crop`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `crop=${encodeURIComponent(crop)}`
+      });
+      kpiCrop.textContent = crop;
+      talhaoCrop.textContent = crop;
+      updateCropDescription(crop);
+    });
+
+    document.getElementById("refreshBtn").addEventListener("click", () => {
+      if (currentDate) loadTiles(currentDate);
+    });
+
+    (async () => {
+      if (!jobId) return;
+      const meta = await waitForJobReady();
+      if (!meta) return;
+      if (meta.crop) {
+        cropSelect.value = meta.crop;
+        kpiCrop.textContent = meta.crop;
+        talhaoCrop.textContent = meta.crop;
+        updateCropDescription(meta.crop);
+      }
+      if (meta.talhoes_count) {
+        kpiTalhoes.textContent = meta.talhoes_count;
+      }
+      const talhoesOk = await loadTalhoes();
+      if (!talhoesOk) return;
+      if (meta.bbox && meta.bbox.length === 4) {
+        const bounds = L.latLngBounds([meta.bbox[0], meta.bbox[1]], [meta.bbox[2], meta.bbox[3]]);
+        map.fitBounds(bounds);
+      }
+      const baseDate = meta.base_date || meta.date;
+      if (baseDate) {
+        datePicker.value = baseDate;
+        await loadTiles(baseDate);
+        kpiMonthly.textContent = "Aguardando";
+        monthlyMessage.textContent = "Aguardando início da análise mensal.";
+        resetMonthlyProgress();
+      }
+    })();
+  </script>
+</body>
+</html>

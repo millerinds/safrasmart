@@ -38,6 +38,8 @@ CEM_TALHOES_GEOJSON = os.getenv(
 
 # In-memory job registry (ephemeral, per-process).
 JOBS: Dict[str, Dict[str, Any]] = {}
+# In-memory imports registry (ephemeral, per-process).
+IMPORTS: Dict[str, Dict[str, Any]] = {}
 
 REGION_DEFAULT_CROP = {
     "Norte": "Pastagem",
@@ -319,6 +321,9 @@ def parse_zip_shapefile(file_storage):
 
 def parse_zip_shapefile_full(file_storage):
     # Read ZIP -> GeoDataFrame -> build both overlay GeoJSON and EE geometry.
+    def _fail(message: str):
+        return None, None, None, None, None, None, None, None, message
+
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
             zip_path = os.path.join(tmpdir, "uploaded.zip")
@@ -326,38 +331,65 @@ def parse_zip_shapefile_full(file_storage):
                 with open(zip_path, "wb") as fh:
                     fh.write(file_storage.read())
             except Exception:
-                return None, None, None, None, "Couldn't read uploaded Zip file."
+                return _fail("Couldn't read uploaded Zip file.")
 
             try:
                 with zipfile.ZipFile(zip_path, "r") as zf:
                     zf.extractall(tmpdir)
             except zipfile.BadZipFile:
-                return None, None, None, None, "Not a valid zip file."
+                return _fail("Not a valid zip file.")
 
             shp_files = [os.path.join(tmpdir, f) for f in os.listdir(tmpdir) if f.lower().endswith(".shp")]
             if not shp_files:
-                return None, None, None, None, "Zip file does not contain .SHP file."
+                return _fail("Zip file does not contain .SHP file.")
 
             try:
                 gdf = gpd.read_file(shp_files[0])
             except Exception as exc:
-                return (
-                    None,
-                    None,
-                    None,
-                    None,
-                    f"Failed to read Shapefile with GeoPandas: Missing companion files (.SHX, .DBF, .CPG, .PRJ) {exc}",
+                return _fail(
+                    "Failed to read Shapefile with GeoPandas: Missing companion files (.SHX, .DBF, .CPG, .PRJ) "
+                    f"{exc}"
                 )
 
             if gdf.empty:
-                return None, None, None, None, None, None, "Shapefile contains no features."
+                return _fail("Shapefile contains no features.")
 
             if gdf.crs is None:
                 minx, miny, maxx, maxy = gdf.total_bounds
                 if abs(minx) > 180 or abs(maxx) > 180 or abs(miny) > 90 or abs(maxy) > 90:
-                    return None, None, None, None, None, None, "Shapefile appears projected but has no CRS. Reproject to EPSG:4326."
+                    return _fail("Shapefile appears projected but has no CRS. Reproject to EPSG:4326.")
             else:
                 gdf = gdf.to_crs(epsg=4326)
+
+            def _coerce_property_value(value):
+                if value is None:
+                    return None
+                try:
+                    if pd.isna(value):
+                        return None
+                except Exception:
+                    pass
+                if isinstance(value, (datetime, date, pd.Timestamp)):
+                    return value.isoformat()
+                if hasattr(value, "item"):
+                    try:
+                        return value.item()
+                    except Exception:
+                        pass
+                return value
+
+            columns = list(gdf.columns)
+            geom_idx = columns.index("geometry") if "geometry" in columns else -1
+            field_names = [col for col in columns if col != "geometry"]
+            rows_light = []
+            for row_idx, row in enumerate(gdf.itertuples(index=False, name=None)):
+                props = {}
+                for col_idx, col_name in enumerate(columns):
+                    if col_idx == geom_idx:
+                        continue
+                    value = _coerce_property_value(row[col_idx])
+                    props[col_name] = value
+                rows_light.append({"__fid": row_idx, "properties": props})
 
             minx, miny, maxx, maxy = gdf.total_bounds
             bbox_geom = box(minx, miny, maxx, maxy)
@@ -377,6 +409,9 @@ def parse_zip_shapefile_full(file_storage):
                         talhoes_list_raw.append(ee.Geometry.MultiPolygon(coords))
                 except Exception:
                     continue
+
+            if not talhoes_list_raw:
+                return _fail("No valid Polygon or MultiPolygon geometries in Shapefile.")
 
             # Overlay geometry is simplified for UI performance only.
             overlay_gdf = gdf.copy()
@@ -411,10 +446,8 @@ def parse_zip_shapefile_full(file_storage):
                     continue
 
             if not talhoes_list:
-                return None, None, None, None, None, None, "No valid Polygon or MultiPolygon geometries in Shapefile."
+                return _fail("No valid Polygon or MultiPolygon geometries in Shapefile.")
 
-            if not talhoes_list_raw:
-                return None, None, None, None, None, None, "No valid Polygon or MultiPolygon geometries in Shapefile."
             talhoes_ee = ee.FeatureCollection([ee.Feature(g) for g in talhoes_list_raw]).geometry()
             overlay_geojson = json.loads(overlay_gdf[["geometry"]].to_json())
             # inject feature ids for popups
@@ -425,10 +458,20 @@ def parse_zip_shapefile_full(file_storage):
             centroid = [bbox_geom.centroid.x, bbox_geom.centroid.y]
 
             bbox_bounds = [miny, minx, maxy, maxx]
-            return talhoes_ee, bbox_ee, overlay_geojson, centroid, talhoes_count, bbox_bounds, None
+            return (
+                talhoes_ee,
+                bbox_ee,
+                overlay_geojson,
+                centroid,
+                talhoes_count,
+                bbox_bounds,
+                rows_light,
+                field_names,
+                None,
+            )
 
     except Exception as exc:
-        return None, None, None, None, None, None, f"Unexpected error while processing Shapefile: {exc}"
+        return _fail(f"Unexpected error while processing Shapefile: {exc}")
 
 
 def parse_zip_shapefile_full_path(zip_path: str):
@@ -443,7 +486,7 @@ def parse_zip_shapefile_full_path(zip_path: str):
         with open(zip_path, "rb") as fh:
             return parse_zip_shapefile_full(FileObj(fh))
     except Exception as exc:
-        return None, None, None, None, None, None, f"Unexpected error while processing Shapefile: {exc}"
+        return None, None, None, None, None, None, None, None, f"Unexpected error while processing Shapefile: {exc}"
 
 
 def parse_kml(file_storage):
@@ -904,7 +947,8 @@ def compute_tiles_for_date(job: Dict[str, Any], date_str: str):
     ndvi_image = ndvi_image.max(-0.05)
 
     # Clip NDVI to talhoes overlay (batching reduces geometry complexity).
-    ndvi_image = clip_ndvi_with_batches(ndvi_image, job.get("overlay_geojson"))
+    overlay_geojson = job.get("overlay_geojson_filtered") or job.get("overlay_geojson")
+    ndvi_image = clip_ndvi_with_batches(ndvi_image, overlay_geojson)
 
     ndvi_palette = ["#6b7280"] + ndvi_palette
     ndvi_params = {"min": -0.05, "max": 1, "palette": ndvi_palette}
@@ -959,13 +1003,53 @@ def _process_job(job_id: str, zip_path: str, form: Dict[str, str]):
             datetime.strptime(end_date, "%Y-%m-%d").date() if end_date else initial_date
         )
 
-        talhoes_geom, bbox_ee, overlay_geojson, last_centroid, talhoes_count, bbox_bounds, shp_err = (
-            parse_zip_shapefile_full_path(zip_path)
-        )
+        (
+            talhoes_geom,
+            bbox_ee,
+            overlay_geojson,
+            last_centroid,
+            talhoes_count,
+            bbox_bounds,
+            rows_light,
+            field_names,
+            shp_err,
+        ) = parse_zip_shapefile_full_path(zip_path)
         if shp_err:
             JOBS[job_id]["errors"].append(shp_err)
             return
         JOBS[job_id]["shapefile_ok"] = True
+        import_id = JOBS[job_id].get("import_id")
+        if import_id:
+            examples_by_field = {name: [] for name in (field_names or [])}
+            examples_seen = {name: set() for name in (field_names or [])}
+            sample_limit = min(len(rows_light or []), 5000)
+            for row in (rows_light or [])[:sample_limit]:
+                props = row.get("properties") or {}
+                for field_name in examples_by_field:
+                    if len(examples_by_field[field_name]) >= 5:
+                        continue
+                    value = props.get(field_name)
+                    if value is None:
+                        continue
+                    try:
+                        if pd.isna(value):
+                            continue
+                    except Exception:
+                        pass
+                    value_str = str(value).strip()
+                    if not value_str:
+                        continue
+                    if value_str in examples_seen[field_name]:
+                        continue
+                    examples_seen[field_name].add(value_str)
+                    examples_by_field[field_name].append(value_str)
+                if all(len(examples_by_field[name]) >= 5 for name in examples_by_field):
+                    break
+            IMPORTS[import_id] = {
+                "rows": rows_light or [],
+                "fields": field_names or [],
+                "examples": examples_by_field,
+            }
 
         region = "Sudeste"
         if last_centroid:
@@ -975,6 +1059,9 @@ def _process_job(job_id: str, zip_path: str, form: Dict[str, str]):
         JOBS[job_id]["bbox_bounds"] = bbox_bounds
         JOBS[job_id]["talhoes_ee"] = talhoes_geom
         JOBS[job_id]["overlay_geojson"] = overlay_geojson
+        JOBS[job_id]["overlay_geojson_full"] = overlay_geojson
+        JOBS[job_id]["overlay_geojson_filtered"] = None
+        JOBS[job_id]["filter_active"] = False
         JOBS[job_id]["region"] = region
         JOBS[job_id]["crop"] = crop
         JOBS[job_id]["base_date"] = initial_date.strftime("%Y-%m-%d")
@@ -985,7 +1072,9 @@ def _process_job(job_id: str, zip_path: str, form: Dict[str, str]):
         if tiles_err:
             JOBS[job_id]["errors"].append(tiles_err)
             return
+        JOBS[job_id]["tiles_full"] = tiles
         JOBS[job_id]["tiles"] = tiles
+        JOBS[job_id]["tiles_filter_active"] = False
     except Exception as exc:
         err = f"Erro inesperado: {exc}"
         JOBS[job_id]["errors"].append(err)
@@ -1077,6 +1166,7 @@ def submit():
         return render_template("landing.html", form_errors=["ZIP sem shapefile (.shp)."])
 
     job_id = uuid.uuid4().hex
+    import_id = uuid.uuid4().hex
     JOBS[job_id] = {
         "errors": [],
         "done": False,
@@ -1084,13 +1174,18 @@ def submit():
         "talhoes_count": None,
         "bbox_bounds": None,
         "overlay_geojson": None,
+        "overlay_geojson_full": None,
+        "overlay_geojson_filtered": None,
         "tiles": None,
+        "tiles_full": None,
+        "tiles_filter_active": False,
         "region": None,
         "crop": None,
         "cloud": None,
         "accessibility": None,
         "base_date": None,
         "selected_date": None,
+        "filter_active": False,
         "monthly": {
             "status": "idle",
             "total": 0,
@@ -1099,6 +1194,7 @@ def submit():
             "results": [],
             "error": None,
         },
+        "import_id": import_id,
     }
 
     initial_date = request.form.get("initial_date") or (date.today() - timedelta(days=2)).strftime("%Y-%m-%d")
@@ -1172,7 +1268,221 @@ def job_meta(job_id: str):
         "bbox": job.get("bbox_bounds"),
         "date": job.get("selected_date"),
         "base_date": job.get("base_date"),
+        "import_id": job.get("import_id"),
     }
+
+
+@app.route("/api/import/<import_id>/fields")
+def import_fields(import_id: str):
+    imp = IMPORTS.get(import_id)
+    if not imp:
+        return {"error": "Import not found"}, 404
+
+    field_names = imp.get("fields") or []
+    if not field_names:
+        return {"fields": []}
+    examples_by_field = imp.get("examples") or {}
+
+    fields_payload = []
+    for field_name in field_names:
+        fields_payload.append({"name": field_name, "examples": examples_by_field.get(field_name, [])})
+
+    return {"fields": fields_payload}
+
+
+@app.route("/api/import/<import_id>/filter-schema", methods=["POST"])
+def import_filter_schema(import_id: str):
+    imp = IMPORTS.get(import_id)
+    if not imp:
+        return {"error": "Import not found"}, 404
+
+    payload = request.get_json(silent=True) or {}
+    farm_field = payload.get("farm_field")
+    field_field = payload.get("field_field")
+    id_field = payload.get("id_field")
+
+    if not farm_field or not field_field:
+        return {"error": "farm_field and field_field are required"}, 400
+    if farm_field == field_field:
+        return {"error": "farm_field must be different from field_field"}, 400
+    if id_field:
+        if id_field == farm_field or id_field == field_field:
+            return {"error": "id_field must be different from farm_field and field_field"}, 400
+
+    imp["filter_schema"] = {
+        "farm_field": farm_field,
+        "field_field": field_field,
+        "id_field": id_field,
+    }
+    return {"ok": True}
+
+
+def _normalize_value(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    value_str = str(value).strip()
+    return value_str or None
+
+
+def _build_field_label(talhao_value: Optional[str], id_value: Optional[str]) -> Optional[str]:
+    if talhao_value and id_value:
+        return f"Talhão {talhao_value} (ID {id_value})"
+    if talhao_value:
+        return f"Talhão {talhao_value}"
+    if id_value:
+        return f"ID {id_value}"
+    return None
+
+
+@app.route("/api/import/<import_id>/farms")
+def import_farms(import_id: str):
+    imp = IMPORTS.get(import_id)
+    if not imp:
+        return {"error": "Import not found"}, 404
+
+    schema = imp.get("filter_schema")
+    if not schema:
+        return {"error": "filter_schema not set"}, 400
+
+    farm_field = schema.get("farm_field")
+    field_field = schema.get("field_field")
+    id_field = schema.get("id_field")
+    rows = imp.get("rows") or []
+    q = request.args.get("q", "").strip().lower()
+
+    farms_map: Dict[str, List[str]] = {}
+    for row in rows:
+        props = row.get("properties") or {}
+        farm_value = _normalize_value(props.get(farm_field))
+        if not farm_value:
+            continue
+        if q and q not in farm_value.lower():
+            continue
+        if farm_value not in farms_map:
+            farms_map[farm_value] = []
+        if len(farms_map[farm_value]) >= 5:
+            continue
+        talhao_value = _normalize_value(props.get(field_field))
+        id_value = _normalize_value(props.get(id_field)) if id_field else None
+        label = _build_field_label(talhao_value, id_value)
+        if label and label not in farms_map[farm_value]:
+            farms_map[farm_value].append(label)
+
+    farms_payload = [
+        {"value": farm_value, "examples": farms_map[farm_value]}
+        for farm_value in sorted(farms_map.keys(), key=lambda v: v.lower())
+    ]
+    return {"farms": farms_payload}
+
+
+@app.route("/api/import/<import_id>/fields-by-farm")
+def import_fields_by_farm(import_id: str):
+    imp = IMPORTS.get(import_id)
+    if not imp:
+        return {"error": "Import not found"}, 404
+
+    schema = imp.get("filter_schema")
+    if not schema:
+        return {"error": "filter_schema not set"}, 400
+
+    farm = request.args.get("farm")
+    if not farm:
+        return {"error": "farm is required"}, 400
+
+    farm_norm = _normalize_value(farm)
+    if not farm_norm:
+        return {"fields": []}
+
+    farm_field = schema.get("farm_field")
+    field_field = schema.get("field_field")
+    id_field = schema.get("id_field")
+    rows = imp.get("rows") or []
+    q = request.args.get("q", "").strip().lower()
+
+    results = []
+    for row in rows:
+        props = row.get("properties") or {}
+        row_farm = _normalize_value(props.get(farm_field))
+        if row_farm != farm_norm:
+            continue
+        talhao_value = _normalize_value(props.get(field_field))
+        id_value = _normalize_value(props.get(id_field)) if id_field else None
+        if q:
+            talhao_match = talhao_value and q in talhao_value.lower()
+            id_match = id_value and q in id_value.lower()
+            if not (talhao_match or id_match):
+                continue
+        label = _build_field_label(talhao_value, id_value) or "Talhão"
+        results.append(
+            {
+                "feature_id": row.get("__fid"),
+                "label": label,
+                "talhao_value": talhao_value,
+                "id_value": id_value,
+            }
+        )
+        if len(results) >= 500:
+            break
+
+    return {"fields": results}
+
+
+def _filter_overlay_by_feature_ids(overlay_geojson: Dict[str, Any], feature_ids: List[int]):
+    if not overlay_geojson or not feature_ids:
+        return None
+    id_set = {int(fid) for fid in feature_ids if fid is not None}
+    if not id_set:
+        return None
+    features = overlay_geojson.get("features", [])
+    if not isinstance(features, list):
+        return None
+    filtered = [feat for feat in features if int((feat.get("properties") or {}).get("id", -1)) in id_set]
+    if not filtered:
+        return {"type": "FeatureCollection", "features": []}
+    return {"type": "FeatureCollection", "features": filtered}
+
+
+@app.route("/api/job/<job_id>/filter-selection", methods=["POST"])
+def job_filter_selection(job_id: str):
+    job = JOBS.get(job_id)
+    if not job:
+        return {"error": "Job not found"}, 404
+    if not job.get("overlay_geojson_full"):
+        return {"error": "Job sem geometria."}, 400
+
+    payload = request.get_json(silent=True) or {}
+    feature_ids = payload.get("feature_ids") or []
+    if not isinstance(feature_ids, list):
+        return {"error": "feature_ids must be a list"}, 400
+
+    if not feature_ids:
+        job["overlay_geojson_filtered"] = None
+        job["filter_active"] = False
+        if job.get("tiles_full"):
+            job["tiles"] = job["tiles_full"]
+            job["tiles_filter_active"] = False
+        return {"ok": True, "filtered": False}
+
+    filtered_overlay = _filter_overlay_by_feature_ids(job.get("overlay_geojson_full"), feature_ids)
+    if filtered_overlay is None:
+        return {"error": "Invalid feature_ids"}, 400
+
+    job["overlay_geojson_filtered"] = filtered_overlay
+    job["filter_active"] = True
+    date_str = job.get("selected_date")
+    if not date_str:
+        return {"ok": True, "filtered": True}
+    tiles, err = compute_tiles_for_date(job, date_str)
+    if err:
+        return {"error": err}, 400
+    job["tiles"] = tiles
+    job["tiles_filter_active"] = True
+    return {"ok": True, "filtered": True, "tiles": tiles}
 
 
 @app.route("/api/job/<job_id>/talhoes")
@@ -1196,7 +1506,8 @@ def job_tiles(job_id: str):
     cached_tiles = job.get("tiles")
     if date_str and cached_tiles:
         cached_date = cached_tiles.get("date") or job.get("selected_date")
-        if cached_date == date_str:
+        cached_filter = job.get("tiles_filter_active")
+        if cached_date == date_str and cached_filter == job.get("filter_active"):
             return cached_tiles
     if not date_str:
         if job.get("tiles"):
@@ -1206,6 +1517,8 @@ def job_tiles(job_id: str):
     tiles, err = compute_tiles_for_date(job, date_str)
     if err:
         return {"error": err}, 400
+    job["tiles"] = tiles
+    job["tiles_filter_active"] = job.get("filter_active")
     return tiles
 
 

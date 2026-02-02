@@ -7,6 +7,275 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+    <style>
+      .topbar-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+
+      .filters-trigger {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.55rem 0.9rem;
+        border-radius: 0.75rem;
+        border: 1px solid rgba(15, 23, 42, 0.12);
+        background: #ffffff;
+        color: #0f172a;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        cursor: pointer;
+        box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+        transition: transform 0.18s ease, box-shadow 0.18s ease;
+      }
+
+      .filters-trigger:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 10px 22px rgba(15, 23, 42, 0.12);
+      }
+
+      .filters-trigger svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      .filters-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(2, 6, 23, 0.68);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 2.5rem 1.5rem;
+        z-index: 2000;
+      }
+
+      .filters-overlay.active {
+        display: flex;
+      }
+
+      .filters-panel {
+        background: #f8fafc;
+        border-radius: 1.5rem;
+        width: min(1100px, 100%);
+        height: 75vh;
+        box-shadow: 0 30px 80px rgba(15, 23, 42, 0.45);
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        overflow: hidden;
+      }
+
+      .filters-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1.5rem 2rem 1rem;
+        border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+        background: #ffffff;
+      }
+
+      .filters-header h2 {
+        margin: 0;
+        font-size: 1.2rem;
+        color: #0f172a;
+      }
+
+      .filters-close {
+        border: none;
+        background: rgba(15, 23, 42, 0.08);
+        color: #0f172a;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        font-size: 1rem;
+      }
+
+      .filters-body {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 1.5rem;
+        padding: 1.5rem 2rem;
+        overflow: hidden;
+      }
+
+      .filters-controls,
+      .filters-map {
+        background: #ffffff;
+        border-radius: 1rem;
+        padding: 1.25rem;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        overflow: auto;
+      }
+
+      .filters-section-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: #0f172a;
+        margin: 0 0 1rem;
+      }
+
+      .filters-field {
+        display: grid;
+        gap: 0.4rem;
+        margin-bottom: 1rem;
+      }
+
+      .filters-field label {
+        font-size: 0.85rem;
+        color: #334155;
+        font-weight: 600;
+      }
+
+      .filters-field select {
+        padding: 0.6rem 0.75rem;
+        border-radius: 0.75rem;
+        border: 1px solid rgba(15, 23, 42, 0.18);
+        background: #f8fafc;
+        font-weight: 500;
+        color: #0f172a;
+      }
+
+      .filters-search {
+        display: grid;
+        gap: 0.4rem;
+        margin-top: 1.25rem;
+      }
+
+      .filters-search input {
+        padding: 0.6rem 0.75rem;
+        border-radius: 0.75rem;
+        border: 1px solid rgba(15, 23, 42, 0.18);
+        background: #f8fafc;
+        font-weight: 500;
+        color: #0f172a;
+      }
+
+      .filters-list {
+        margin-top: 0.75rem;
+        border-radius: 0.75rem;
+        border: 1px solid rgba(15, 23, 42, 0.12);
+        background: #f8fafc;
+        max-height: 220px;
+        overflow: auto;
+        padding: 0.5rem;
+        display: grid;
+        gap: 0.4rem;
+      }
+
+      .filters-list button {
+        border: none;
+        background: #ffffff;
+        border-radius: 0.6rem;
+        padding: 0.45rem 0.6rem;
+        text-align: left;
+        cursor: pointer;
+        font-weight: 600;
+        color: #0f172a;
+      }
+
+      .filters-list button:hover {
+        background: #e2e8f0;
+      }
+
+      .filters-checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.35rem 0.4rem;
+        border-radius: 0.6rem;
+        background: #ffffff;
+      }
+
+      .filters-checkbox-row input {
+        width: 16px;
+        height: 16px;
+      }
+
+      .filters-checkbox-row label {
+        font-size: 0.9rem;
+        color: #0f172a;
+        font-weight: 500;
+      }
+
+      .filters-examples {
+        font-size: 0.85rem;
+        color: #475569;
+      }
+
+      .filters-examples strong {
+        color: #0f172a;
+      }
+
+      .filters-error {
+        margin-top: 0.75rem;
+        color: #dc2626;
+        font-weight: 600;
+        font-size: 0.9rem;
+      }
+
+      .filters-map {
+        display: grid;
+        place-items: center;
+        color: #64748b;
+        font-weight: 500;
+        text-align: center;
+        background: radial-gradient(circle at top, #f1f5f9 0%, #e2e8f0 100%);
+      }
+
+      #filtersMiniMap {
+        width: 100%;
+        height: 100%;
+        border-radius: 0.9rem;
+        overflow: hidden;
+      }
+
+      .filters-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.75rem;
+        padding: 1.25rem 2rem 1.5rem;
+        border-top: 1px solid rgba(15, 23, 42, 0.08);
+        background: #ffffff;
+      }
+
+      .filters-footer button {
+        padding: 0.6rem 1.2rem;
+        border-radius: 0.75rem;
+        border: 1px solid transparent;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .filters-apply {
+        background: #0f172a;
+        color: #ffffff;
+      }
+
+      .filters-clear {
+        background: #ffffff;
+        color: #0f172a;
+        border-color: rgba(15, 23, 42, 0.18);
+      }
+
+      .filters-cancel {
+        background: rgba(15, 23, 42, 0.08);
+        color: #0f172a;
+      }
+
+      @media (max-width: 900px) {
+        .filters-panel {
+          height: auto;
+          max-height: 85vh;
+        }
+        .filters-body {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
   </head>
   <body>
     <!-- Main dashboard layout -->
@@ -78,6 +347,14 @@
                 <div class="slider-meta">
                   <span id="sliderDate">--</span>
                 </div>
+              </div>
+              <div class="topbar-actions" style="justify-content:flex-end;">
+                <button class="filters-trigger" id="openFilters" type="button">
+                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M3 5.25a.75.75 0 0 1 .75-.75h16.5a.75.75 0 0 1 .56 1.25L14 13.5v4.75a.75.75 0 0 1-1.13.65l-3-1.8a.75.75 0 0 1-.37-.65V13.5L3.19 5.75A.75.75 0 0 1 3 5.25Z"/>
+                  </svg>
+                  Filtros
+                </button>
               </div>
             </div>
           </div>
@@ -157,6 +434,61 @@
       </div>
     </div>
 
+    <div class="filters-overlay" id="filtersOverlay" aria-hidden="true">
+      <div class="filters-panel" role="dialog" aria-modal="true" aria-label="Filtros">
+        <div class="filters-header">
+          <h2>Filtros</h2>
+          <button class="filters-close" type="button" id="closeFilters">X</button>
+        </div>
+        <div class="filters-body">
+          <div class="filters-controls">
+            <div class="filters-section-title">Configurar campos do shape</div>
+            <div class="filters-field">
+              <label for="farmFieldSelect">Campo Fazenda</label>
+              <select id="farmFieldSelect">
+                <option value="">Selecione um campo</option>
+              </select>
+              <div class="filters-examples" id="farmFieldExamples">Exemplos: --</div>
+            </div>
+            <div class="filters-field">
+              <label for="fieldFieldSelect">Campo Talhão</label>
+              <select id="fieldFieldSelect">
+                <option value="">Selecione um campo</option>
+              </select>
+              <div class="filters-examples" id="fieldFieldExamples">Exemplos: --</div>
+            </div>
+            <div class="filters-error" id="filtersError" style="display:none;"></div>
+
+            <div class="filters-section-title" style="margin-top:1.5rem;">Selecionar fazenda</div>
+            <div class="filters-search">
+              <label for="farmSearchInput">Busca por fazenda</label>
+              <input id="farmSearchInput" type="text" placeholder="Digite o nome da fazenda" />
+            </div>
+            <div class="filters-list" id="farmList"></div>
+
+            <div class="filters-section-title" style="margin-top:1.25rem;">Selecionar talhões</div>
+            <div class="filters-checkbox-row">
+              <input type="checkbox" id="selectAllFields" checked />
+              <label for="selectAllFields">Selecionar todos</label>
+            </div>
+            <div class="filters-search">
+              <label for="fieldSearchInput">Busca por talhão</label>
+              <input id="fieldSearchInput" type="text" placeholder="Digite o talhão ou ID" />
+            </div>
+            <div class="filters-list" id="fieldList"></div>
+          </div>
+          <div class="filters-map">
+            <div id="filtersMiniMap"></div>
+          </div>
+        </div>
+        <div class="filters-footer">
+          <button class="filters-clear" type="button" id="clearFilters">Limpar</button>
+          <button class="filters-cancel" type="button" id="cancelFilters">Cancelar</button>
+          <button class="filters-apply" type="button" id="applyFilters" disabled>Aplicar</button>
+        </div>
+      </div>
+    </div>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
       // Dashboard client logic (map + data fetch).
@@ -176,6 +508,297 @@
       const talhaoPercValidos = document.getElementById("talhaoPercValidos");
       const talhaoConfiab = document.getElementById("talhaoConfiab");
       const cropDescription = document.getElementById("cropDescription");
+      const filtersOverlay = document.getElementById("filtersOverlay");
+      const openFiltersBtn = document.getElementById("openFilters");
+      const closeFiltersBtn = document.getElementById("closeFilters");
+      const cancelFiltersBtn = document.getElementById("cancelFilters");
+      const farmFieldSelect = document.getElementById("farmFieldSelect");
+      const fieldFieldSelect = document.getElementById("fieldFieldSelect");
+      const farmFieldExamples = document.getElementById("farmFieldExamples");
+      const fieldFieldExamples = document.getElementById("fieldFieldExamples");
+      const filtersError = document.getElementById("filtersError");
+      const applyFiltersBtn = document.getElementById("applyFilters");
+      const clearFiltersBtn = document.getElementById("clearFilters");
+      const farmSearchInput = document.getElementById("farmSearchInput");
+      const farmList = document.getElementById("farmList");
+      const fieldSearchInput = document.getElementById("fieldSearchInput");
+      const fieldList = document.getElementById("fieldList");
+      const selectAllFields = document.getElementById("selectAllFields");
+
+      const filterConfig = { farmField: "", fieldField: "" };
+      const filterSelection = { farmValue: "", selectedFeatureIds: [], selectAll: true };
+      let importId = null;
+      let examplesByField = {};
+      let farmSearchTimer = null;
+      let fieldSearchTimer = null;
+      let cachedFarms = [];
+      let cachedFields = [];
+      let cachedFieldsAll = [];
+      let talhoesGeojsonData = null;
+      let miniMap = null;
+      let miniLayer = null;
+
+      function openFilters() {
+        if (!filtersOverlay) return;
+        filtersOverlay.classList.add("active");
+        filtersOverlay.setAttribute("aria-hidden", "false");
+      }
+
+      function closeFilters() {
+        if (!filtersOverlay) return;
+        filtersOverlay.classList.remove("active");
+        filtersOverlay.setAttribute("aria-hidden", "true");
+      }
+
+      function restoreAllTalhoes() {
+        if (!talhoesGeojsonData) return;
+        const exploded = explodeGeojson(talhoesGeojsonData);
+        exploded.features.forEach((feature, index) => {
+          feature.properties = feature.properties || {};
+          feature.properties.__index = feature.properties.__index ?? feature.properties.id ?? index;
+        });
+        setTalhoesLayer(exploded);
+        if (talhoesLayer) {
+          const bounds = talhoesLayer.getBounds();
+          if (bounds.isValid()) {
+            map.fitBounds(bounds, { padding: [24, 24] });
+          }
+        }
+      }
+
+      function resetFilterSelection() {
+        filterSelection.farmValue = "";
+        filterSelection.selectedFeatureIds = [];
+        filterSelection.selectAll = true;
+        if (selectAllFields) {
+          selectAllFields.checked = true;
+        }
+        if (farmSearchInput) farmSearchInput.value = "";
+        if (fieldSearchInput) fieldSearchInput.value = "";
+        if (farmList) farmList.innerHTML = "";
+        if (fieldList) fieldList.innerHTML = "";
+        if (filtersError) {
+          filtersError.textContent = "";
+          filtersError.style.display = "none";
+        }
+        if (importId) {
+          loadFarms("");
+        }
+      }
+
+      function initMiniMap() {
+        if (miniMap) return;
+        const container = document.getElementById("filtersMiniMap");
+        if (!container) return;
+        miniMap = L.map(container, { zoomControl: false, attributionControl: false });
+        L.tileLayer(
+          "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+          { maxZoom: 19 }
+        ).addTo(miniMap);
+        miniLayer = L.geoJSON([], {
+          style: () => ({
+            color: "#0f172a",
+            weight: 2,
+            fillOpacity: 0.0
+          })
+        }).addTo(miniMap);
+        if (talhoesGeojsonData) {
+          updateMiniMapLayer();
+        }
+        setTimeout(() => {
+          miniMap.invalidateSize();
+        }, 50);
+      }
+
+      function updateMiniMapLayer() {
+        if (!miniMap || !miniLayer || !talhoesGeojsonData) return;
+        let features = talhoesGeojsonData.features || [];
+        const selectedIds = new Set((filterSelection.selectedFeatureIds || []).map((id) => Number(id)));
+        if (filterSelection.farmValue) {
+          if (selectedIds.size > 0) {
+            features = features.filter((feat) => selectedIds.has(Number(feat?.properties?.id)));
+          } else if (!filterSelection.selectAll) {
+            features = [];
+          }
+        }
+        miniLayer.clearLayers();
+        miniLayer.addData({ type: "FeatureCollection", features });
+        miniLayer.setStyle((feature) => {
+          const isSelected = selectedIds.has(Number(feature?.properties?.id));
+          return {
+            color: "#0f172a",
+            weight: isSelected ? 3 : 1.5,
+            fillOpacity: 0.0
+          };
+        });
+        if (features.length) {
+          const bounds = miniLayer.getBounds();
+          if (bounds.isValid()) {
+            miniMap.fitBounds(bounds, { padding: [20, 20] });
+          }
+        }
+      }
+
+      function renderExamples(target, fieldName) {
+        if (!target) return;
+        if (!fieldName) {
+          target.textContent = "Exemplos: --";
+          return;
+        }
+        const examples = examplesByField[fieldName] || [];
+        target.textContent = examples.length
+          ? `Exemplos: ${examples.join(", ")}`
+          : "Exemplos: --";
+      }
+
+      function validateFilterConfig() {
+        if (!filtersError || !applyFiltersBtn) return;
+        let errorMessage = "";
+        if (filterConfig.farmField && filterConfig.fieldField && filterConfig.farmField === filterConfig.fieldField) {
+          errorMessage = "Campo Fazenda e Campo Talhão não podem ser iguais.";
+        }
+        if (errorMessage) {
+          filtersError.textContent = errorMessage;
+          filtersError.style.display = "block";
+          applyFiltersBtn.disabled = true;
+        } else {
+          filtersError.textContent = "";
+          filtersError.style.display = "none";
+          applyFiltersBtn.disabled = !(filterConfig.farmField && filterConfig.fieldField);
+        }
+        if (!errorMessage && filterConfig.farmField && filterConfig.fieldField) {
+          saveFilterSchema();
+        }
+      }
+
+      async function saveFilterSchema() {
+        if (!importId) return;
+        try {
+          await fetch(`/api/import/${importId}/filter-schema`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              farm_field: filterConfig.farmField,
+              field_field: filterConfig.fieldField
+            })
+          });
+          if (farmSearchInput) {
+            loadFarms(farmSearchInput.value || "");
+          } else {
+            loadFarms("");
+          }
+        } catch (err) {
+          if (filtersError) {
+            filtersError.textContent = "Erro ao salvar configuração de campos.";
+            filtersError.style.display = "block";
+          }
+        }
+      }
+
+      function renderFarms(items) {
+        if (!farmList) return;
+        farmList.innerHTML = "";
+        if (!items.length) {
+          farmList.innerHTML = "<div style='color:#64748b;padding:0.4rem 0.5rem;'>Nenhuma fazenda encontrada.</div>";
+          return;
+        }
+        items.forEach((farm) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.textContent = farm.value;
+          btn.addEventListener("click", () => {
+            filterSelection.farmValue = farm.value;
+            filterSelection.selectAll = true;
+            if (selectAllFields) {
+              selectAllFields.checked = true;
+            }
+            if (fieldSearchInput) {
+              fieldSearchInput.value = "";
+            }
+            loadFieldsByFarm(farm.value, "", true);
+            updateMiniMapLayer();
+          });
+          farmList.appendChild(btn);
+        });
+      }
+
+      function renderFields(items) {
+        if (!fieldList) return;
+        fieldList.innerHTML = "";
+        if (!items.length) {
+          fieldList.innerHTML = "<div style='color:#64748b;padding:0.4rem 0.5rem;'>Nenhum talhão encontrado.</div>";
+          return;
+        }
+        const selectedSet = new Set(filterSelection.selectedFeatureIds.map((id) => Number(id)));
+        items.forEach((item) => {
+          const row = document.createElement("div");
+          row.className = "filters-checkbox-row";
+          const input = document.createElement("input");
+          input.type = "checkbox";
+          input.value = item.feature_id;
+          const itemId = Number(item.feature_id);
+          input.checked = filterSelection.selectAll || selectedSet.has(itemId);
+          input.disabled = filterSelection.selectAll;
+          input.addEventListener("change", () => {
+            const idVal = itemId;
+            if (input.checked) {
+              if (!selectedSet.has(idVal)) {
+                filterSelection.selectedFeatureIds.push(idVal);
+              }
+            } else {
+              filterSelection.selectedFeatureIds = filterSelection.selectedFeatureIds.filter((id) => id !== idVal);
+            }
+            updateMiniMapLayer();
+          });
+          const label = document.createElement("label");
+          label.textContent = item.label;
+          row.appendChild(input);
+          row.appendChild(label);
+          fieldList.appendChild(row);
+        });
+      }
+
+      async function loadFarms(query = "") {
+        if (!importId) return;
+        const res = await fetch(`/api/import/${importId}/farms?q=${encodeURIComponent(query)}`);
+        const data = await res.json();
+        cachedFarms = Array.isArray(data.farms) ? data.farms : [];
+        renderFarms(cachedFarms);
+      }
+
+      async function loadFieldsByFarm(farmValue, query = "", updateSelection = true) {
+        if (!importId || !farmValue) return;
+        const res = await fetch(
+          `/api/import/${importId}/fields-by-farm?farm=${encodeURIComponent(farmValue)}&q=${encodeURIComponent(query)}`
+        );
+        const data = await res.json();
+        const items = Array.isArray(data.fields) ? data.fields : [];
+        cachedFields = items;
+        if (query === "") {
+          cachedFieldsAll = items;
+        }
+        if (updateSelection) {
+          if (filterSelection.selectAll) {
+            filterSelection.selectedFeatureIds = cachedFieldsAll.map((item) => Number(item.feature_id));
+          } else {
+            filterSelection.selectedFeatureIds = [];
+          }
+        }
+        renderFields(items);
+        updateMiniMapLayer();
+      }
+
+      function debounce(fn, delay, timerRefName) {
+        return (...args) => {
+          if (timerRefName === "farm") {
+            clearTimeout(farmSearchTimer);
+            farmSearchTimer = setTimeout(() => fn(...args), delay);
+          } else {
+            clearTimeout(fieldSearchTimer);
+            fieldSearchTimer = setTimeout(() => fn(...args), delay);
+          }
+        };
+      }
 
       let ndviLayer = null;
       let ndviClassLayer = null;
@@ -478,18 +1101,7 @@
         return bestLayer;
       }
 
-      async function loadTalhoes() {
-        const res = await fetch(`/api/job/${jobId}/talhoes`);
-        const data = await res.json();
-        if (!data || !data.features) return;
-
-        const exploded = explodeGeojson(data);
-
-        exploded.features.forEach((feature, index) => {
-          feature.properties = feature.properties || {};
-          feature.properties.__index = feature.properties.__index ?? feature.properties.id ?? index;
-        });
-
+      function setTalhoesLayer(exploded) {
         if (talhoesLayer) {
           map.removeLayer(talhoesLayer);
         }
@@ -500,6 +1112,24 @@
             fillOpacity: 0.0
           })
         }).addTo(map);
+      }
+
+      async function loadTalhoes() {
+        const res = await fetch(`/api/job/${jobId}/talhoes`);
+        const data = await res.json();
+        if (!data || !data.features) return;
+
+        talhoesGeojsonData = data;
+        updateMiniMapLayer();
+
+        const exploded = explodeGeojson(data);
+
+        exploded.features.forEach((feature, index) => {
+          feature.properties = feature.properties || {};
+          feature.properties.__index = feature.properties.__index ?? feature.properties.id ?? index;
+        });
+
+        setTalhoesLayer(exploded);
 
         map.on("click", async (event) => {
           const picked = pickBestLayerAtPoint(event.latlng);
@@ -543,6 +1173,148 @@
       }
 
 
+      if (openFiltersBtn) {
+        openFiltersBtn.addEventListener("click", () => {
+          openFilters();
+          initMiniMap();
+        });
+      }
+      if (closeFiltersBtn) {
+        closeFiltersBtn.addEventListener("click", closeFilters);
+      }
+      if (cancelFiltersBtn) {
+        cancelFiltersBtn.addEventListener("click", closeFilters);
+      }
+      if (filtersOverlay) {
+        filtersOverlay.addEventListener("click", (event) => {
+          if (event.target === filtersOverlay) {
+            closeFilters();
+          }
+        });
+      }
+
+      if (clearFiltersBtn) {
+        clearFiltersBtn.addEventListener("click", async () => {
+          resetFilterSelection();
+          restoreAllTalhoes();
+          updateMiniMapLayer();
+          if (importId) {
+            try {
+              await fetch(`/api/job/${jobId}/filter-selection`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ feature_ids: [] })
+              });
+            } catch (err) {
+              // keep UI reset even if server fails
+            }
+          }
+          await loadTiles(currentDate || baseDate);
+        });
+      }
+
+      if (applyFiltersBtn) {
+        applyFiltersBtn.addEventListener("click", async () => {
+          if (!filterConfig.farmField || !filterConfig.fieldField) {
+            filtersError.textContent = "Selecione Campo Fazenda e Campo Talhão.";
+            filtersError.style.display = "block";
+            return;
+          }
+          if (!filterSelection.farmValue) {
+            filtersError.textContent = "Selecione uma fazenda.";
+            filtersError.style.display = "block";
+            return;
+          }
+          if (!filterSelection.selectedFeatureIds.length) {
+            filtersError.textContent = "Selecione ao menos um talhão.";
+            filtersError.style.display = "block";
+            return;
+          }
+          filtersError.textContent = "";
+          filtersError.style.display = "none";
+
+          if (talhoesGeojsonData) {
+            const selectedIds = new Set(filterSelection.selectedFeatureIds.map((id) => Number(id)));
+            const filtered = (talhoesGeojsonData.features || []).filter((feat) =>
+              selectedIds.has(Number(feat?.properties?.id))
+            );
+            const exploded = explodeGeojson({ type: "FeatureCollection", features: filtered });
+            exploded.features.forEach((feature, index) => {
+              feature.properties = feature.properties || {};
+              feature.properties.__index = feature.properties.__index ?? feature.properties.id ?? index;
+            });
+            setTalhoesLayer(exploded);
+            if (talhoesLayer) {
+              const bounds = talhoesLayer.getBounds();
+              if (bounds.isValid()) {
+                map.fitBounds(bounds, { padding: [24, 24] });
+              }
+            }
+          }
+          try {
+            await fetch(`/api/job/${jobId}/filter-selection`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ feature_ids: filterSelection.selectedFeatureIds })
+            });
+          } catch (err) {
+            // keep UI state even if server fails
+          }
+          await loadTiles(currentDate || baseDate);
+          closeFilters();
+        });
+      }
+
+      if (farmFieldSelect) {
+        farmFieldSelect.addEventListener("change", (event) => {
+          filterConfig.farmField = event.target.value;
+          renderExamples(farmFieldExamples, filterConfig.farmField);
+          validateFilterConfig();
+        });
+      }
+
+      if (fieldFieldSelect) {
+        fieldFieldSelect.addEventListener("change", (event) => {
+          filterConfig.fieldField = event.target.value;
+          renderExamples(fieldFieldExamples, filterConfig.fieldField);
+          validateFilterConfig();
+        });
+      }
+
+      if (selectAllFields) {
+        selectAllFields.addEventListener("change", () => {
+          filterSelection.selectAll = selectAllFields.checked;
+          if (filterSelection.farmValue) {
+            if (filterSelection.selectAll) {
+              filterSelection.selectedFeatureIds = cachedFieldsAll.map((item) => Number(item.feature_id));
+            } else {
+              filterSelection.selectedFeatureIds = [];
+            }
+            renderFields(cachedFields);
+          }
+          updateMiniMapLayer();
+        });
+      }
+
+      if (farmSearchInput) {
+        farmSearchInput.addEventListener(
+          "input",
+          debounce((event) => {
+            loadFarms(event.target.value || "");
+          }, 300, "farm")
+        );
+      }
+
+      if (fieldSearchInput) {
+        fieldSearchInput.addEventListener(
+          "input",
+          debounce((event) => {
+            if (!filterSelection.farmValue) return;
+            loadFieldsByFarm(filterSelection.farmValue, event.target.value || "", false);
+          }, 300, "field")
+        );
+      }
+
       cropSelect.addEventListener("change", async () => {
         const crop = cropSelect.value;
         await fetch(`/api/job/${jobId}/set_crop`, {
@@ -558,6 +1330,7 @@
       (async () => {
         const metaRes = await fetch(`/api/job/${jobId}/meta`);
         const meta = await metaRes.json();
+        importId = meta.import_id || null;
         if (meta.crop) {
           cropSelect.value = meta.crop;
           kpiCrop.textContent = meta.crop;
@@ -576,6 +1349,30 @@
         } else {
           map.setView([-14.235, -51.925], 4);
         }
+        if (importId) {
+          const fieldsRes = await fetch(`/api/import/${importId}/fields`);
+          const fieldsPayload = await fieldsRes.json();
+          const fieldItems = Array.isArray(fieldsPayload.fields) ? fieldsPayload.fields : [];
+          examplesByField = {};
+          fieldItems.forEach((item) => {
+            if (!item || !item.name) return;
+            examplesByField[item.name] = Array.isArray(item.examples) ? item.examples : [];
+            if (farmFieldSelect) {
+              const opt = document.createElement("option");
+              opt.value = item.name;
+              opt.textContent = item.name;
+              farmFieldSelect.appendChild(opt);
+            }
+            if (fieldFieldSelect) {
+              const opt = document.createElement("option");
+              opt.value = item.name;
+              opt.textContent = item.name;
+              fieldFieldSelect.appendChild(opt);
+            }
+          });
+          await loadFarms("");
+        }
+        validateFilterConfig();
         await loadTiles(currentDate || meta.date || baseDate);
         await loadTalhoes();
       })();

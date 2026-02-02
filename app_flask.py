@@ -1327,7 +1327,44 @@ def talhao_stats(job_id: str):
     ndvi_image = imagery.normalizedDifference(["B8", "B4"])
     ndvi_image = ndvi_image.max(0)
 
-    stats = ndvi_image.reduceRegion(
+    # Pixel validity metrics
+    # Considera válidos apenas pixels com máscara ativa e NDVI > 0 (evita nuvem/baixa iluminação que vira cinza).
+    valid_mask = ndvi_image.mask().And(ndvi_image.gt(0))
+
+    # Conta de pixels válidos (usa count em imagem constante mascarada pelos válidos).
+    valid_pixels = ee.Image.constant(1).updateMask(valid_mask).reduceRegion(
+        reducer=ee.Reducer.count(),
+        geometry=geom,
+        scale=10,
+        maxPixels=1e13,
+    )
+
+    # Total de pixels no talhão (sem máscara).
+    total_pixels = ee.Image.constant(1).reduceRegion(
+        reducer=ee.Reducer.count(),
+        geometry=geom,
+        scale=10,
+        maxPixels=1e13,
+    )
+
+    valid_pixels_value = ee.Number(valid_pixels.get("constant", 0))
+    total_pixels_value = ee.Number(total_pixels.get("constant", 0))
+
+    invalid_pixels_value = total_pixels_value.subtract(valid_pixels_value).max(0)
+    percent_valid = ee.Algorithms.If(
+        total_pixels_value.eq(0),
+        ee.Number(0),
+        valid_pixels_value.divide(total_pixels_value).multiply(100),
+    )
+    percent_valid = ee.Number(percent_valid).min(100)
+
+    pixels_validos = int(valid_pixels_value.getInfo() or 0)
+    pixels_totais = int(total_pixels_value.getInfo() or 0)
+    pixels_invalidos = int(invalid_pixels_value.getInfo() or 0)
+    percentual_validos = float(percent_valid.getInfo() or 0.0)
+    mensagem = "Sem dados disponíveis" if pixels_totais == 0 else None
+
+    stats = ndvi_image.updateMask(valid_mask).reduceRegion(
         reducer=ee.Reducer.mean(),
         geometry=geom,
         scale=10,
@@ -1340,10 +1377,16 @@ def talhao_stats(job_id: str):
     status = classify_ndvi_status(ndvi_mean, crop)
 
     return {
-        "ndvi": ndvi_mean,
+        "ndvi": ndvi_mean,  # compatibilidade: chave existente
+        "ndvi_medio": ndvi_mean,  # novo alias solicitado
         "area_ha": area_ha,
         "crop": crop,
         "status": status,
+        "pixels_validos": pixels_validos,
+        "pixels_totais": pixels_totais,
+        "pixels_invalidos": pixels_invalidos,
+        "percentual_validos": percentual_validos,
+        "mensagem": mensagem,
     }
 
 

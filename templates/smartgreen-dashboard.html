@@ -131,6 +131,22 @@
               <span class="info-label">Status</span>
               <span class="info-value" id="talhaoStatus">--</span>
             </div>
+            <div class="info-row">
+              <span class="info-label">Pixels válidos</span>
+              <span class="info-value" id="talhaoPixValidos">--</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Pixels inválidos</span>
+              <span class="info-value" id="talhaoPixInvalidos">--</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">% válidos</span>
+              <span class="info-value" id="talhaoPercValidos">--</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Confiabilidade</span>
+              <span class="info-value" id="talhaoConfiab">--</span>
+            </div>
             <div class="crop-description" id="cropDescription">
               <div class="crop-description-title">Descrição da cultura</div>
               <div class="crop-desc-tip">Selecione uma cultura para ver a interpretação do NDVI.</div>
@@ -155,6 +171,10 @@
       const talhaoArea = document.getElementById("talhaoArea");
       const talhaoNdvi = document.getElementById("talhaoNdvi");
       const talhaoStatus = document.getElementById("talhaoStatus");
+      const talhaoPixValidos = document.getElementById("talhaoPixValidos");
+      const talhaoPixInvalidos = document.getElementById("talhaoPixInvalidos");
+      const talhaoPercValidos = document.getElementById("talhaoPercValidos");
+      const talhaoConfiab = document.getElementById("talhaoConfiab");
       const cropDescription = document.getElementById("cropDescription");
 
       let ndviLayer = null;
@@ -219,10 +239,71 @@
         mapLoading.classList.toggle("active", state);
       }
 
+      function formatNumber(value, decimals = 2) {
+        const num = Number(value);
+        if (!isFinite(num)) return "--";
+        return num.toFixed(decimals);
+      }
+
+      function classifyConfiabilidade(percentualValidos) {
+        if (!Number.isFinite(percentualValidos)) return { label: "—", baixa: false };
+        if (percentualValidos >= 90) return { label: "Alta confiabilidade", baixa: false };
+        if (percentualValidos >= 70) return { label: "Média confiabilidade", baixa: false };
+        return { label: "Baixa confiabilidade", baixa: true };
+      }
+
       function updateTalhaoInfo(data) {
-        talhaoArea.textContent = `${data.area_ha.toFixed(2)} ha`;
-        talhaoNdvi.textContent = data.ndvi.toFixed(3);
-        talhaoStatus.textContent = data.status;
+        const area = Number(data.area_ha);
+        const ndviVal = Number(data.ndvi);
+        const pixValidos = Number(data.pixels_validos);
+        const pixInvalidos = Number(data.pixels_invalidos);
+        const percValidos = Number(data.percentual_validos);
+        const { label: confiabLabel } = classifyConfiabilidade(percValidos);
+
+        talhaoArea.textContent = Number.isFinite(area) ? `${area.toFixed(2)} ha` : "-- ha";
+        talhaoNdvi.textContent = Number.isFinite(ndviVal) ? ndviVal.toFixed(3) : "--";
+        talhaoStatus.textContent = data.status ?? "--";
+        talhaoPixValidos.textContent = Number.isFinite(pixValidos) ? pixValidos : "--";
+        talhaoPixInvalidos.textContent = Number.isFinite(pixInvalidos) ? pixInvalidos : "--";
+        talhaoPercValidos.textContent = Number.isFinite(percValidos) ? `${percValidos.toFixed(2)}%` : "--";
+        talhaoConfiab.textContent = confiabLabel;
+      }
+
+      function showTalhaoPopup(layer, stats, clickLatLng) {
+        if (!layer || !stats) return;
+        const ndviMedio = stats.ndvi_medio ?? stats.ndvi;
+        const pixelsValidos = stats.pixels_validos;
+        const pixelsInvalidos = stats.pixels_invalidos;
+        const percentualValidos = stats.percentual_validos;
+        const mensagem = stats.mensagem || stats.message;
+
+        const { label: confiabilidade, baixa: baixaConfianca } = classifyConfiabilidade(percentualValidos);
+
+        const popupHtml = `
+          <div style="font-weight:600;margin-bottom:4px;">Talhão</div>
+          <div>NDVI médio: ${formatNumber(ndviMedio, 2)}</div>
+          <div>Pixels válidos: ${pixelsValidos ?? "--"}</div>
+          <div>Pixels inválidos: ${pixelsInvalidos ?? "--"}</div>
+          <div>% válidos: ${formatNumber(percentualValidos, 2)}%</div>
+          <div>Confiabilidade: ${confiabilidade}</div>
+          ${
+            baixaConfianca
+              ? `<div style="margin-top:6px;color:#dc2626;font-weight:600;">⚠️ Baixa confiabilidade — muitos pixels inválidos</div>`
+              : ""
+          }
+          ${
+            mensagem
+              ? `<div style="margin-top:6px;color:#dc2626;font-weight:600;">${mensagem}</div>`
+              : ""
+          }
+        `;
+
+        layer.bindPopup(popupHtml, { closeButton: true });
+        if (clickLatLng) {
+          layer.openPopup(clickLatLng);
+        } else if (typeof layer.openPopup === "function") {
+          layer.openPopup();
+        }
       }
 
       const CROP_DESCRIPTIONS = {
@@ -435,6 +516,7 @@
           const stats = await statsRes.json();
           if (!stats || stats.error) return;
           updateTalhaoInfo(stats);
+          showTalhaoPopup(picked, stats, event.latlng);
         });
       }
 

@@ -67,39 +67,61 @@ _EE_READY = False
 
 
 def ee_initialize() -> None:
-    """Initialize Earth Engine once per process."""
+    """Initialize Earth Engine once per process (supports Fly secrets)."""
     global _EE_READY
     if _EE_READY:
         return
 
     json_key = os.getenv("EE_SERVICE_ACCOUNT_JSON")
     json_file = os.getenv("EE_SERVICE_ACCOUNT_FILE")
+    ee_project = os.getenv("EE_PROJECT")  # e.g. "earth-484311"
 
     try:
         if json_key:
             service_account_info = json.loads(json_key)
             if "client_email" not in service_account_info:
                 raise ValueError("Service account email address missing in json key")
+
             creds = service_account.Credentials.from_service_account_info(
-                service_account_info, scopes=oauth.SCOPES
+                service_account_info,
+                scopes=oauth.SCOPES,
             )
-            ee.Initialize(creds)
+
+            # Prefer passing the project explicitly (more reliable on Fly)
+            if ee_project:
+                ee.Initialize(creds, project=ee_project)
+            else:
+                ee.Initialize(creds)
+
         elif json_file:
             with open(json_file, "r", encoding="utf-8") as fh:
                 service_account_info = json.load(fh)
+
             if "client_email" not in service_account_info:
                 raise ValueError("Service account email address missing in json file")
-            creds = service_account.Credentials.from_service_account_info(
-                service_account_info, scopes=oauth.SCOPES
-            )
-            ee.Initialize(creds)
-        else:
-            ee.Initialize()
-        _EE_READY = True
-    except Exception as exc:
-        _EE_READY = False
-        raise exc
 
+            creds = service_account.Credentials.from_service_account_info(
+                service_account_info,
+                scopes=oauth.SCOPES,
+            )
+
+            if ee_project:
+                ee.Initialize(creds, project=ee_project)
+            else:
+                ee.Initialize(creds)
+
+        else:
+            # Local dev / ADC fallback
+            if ee_project:
+                ee.Initialize(project=ee_project)
+            else:
+                ee.Initialize()
+
+        _EE_READY = True
+
+    except Exception:
+        _EE_READY = False
+        raise
 
 
 def sat_collection(cloud_rate: int, initial_date: str, updated_date: str, aoi):

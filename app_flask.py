@@ -130,7 +130,7 @@ def sat_collection(cloud_rate: int, initial_date: str, updated_date: str, aoi):
     # Build the Sentinel-2 collection, pre-filtered by cloudiness and AOI.
     try:
         collection = (
-            ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+            ee.ImageCollection("COPERNICUS/S2_SR")
             .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", cloud_rate))
             .filterDate(initial_date, updated_date)
             .filterBounds(aoi)

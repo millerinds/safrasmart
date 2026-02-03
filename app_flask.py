@@ -129,6 +129,7 @@ def ee_initialize() -> None:
 def sat_collection(cloud_rate: int, initial_date: str, updated_date: str, aoi):
     # Build the Sentinel-2 collection, pre-filtered by cloudiness and AOI.
     try:
+        cloud_rate = clamp_cloud_percentage(int(cloud_rate))
         collection = (
             ee.ImageCollection("COPERNICUS/S2_SR")
             .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", cloud_rate))
@@ -152,6 +153,11 @@ def sat_collection(cloud_rate: int, initial_date: str, updated_date: str, aoi):
 
     except Exception as exc:
         return None, f"Earth Engine encountered an error while building Sentinel-2 Collection: {exc}"
+
+
+def clamp_cloud_percentage(value: int) -> int:
+    """Clamp cloud slider input between 30% and 100%."""
+    return max(30, min(value, 100))
 
 
 # ---------------------------
@@ -996,7 +1002,7 @@ def _process_job(job_id: str, zip_path: str, form: Dict[str, str]):
         ee_initialize()
 
         accessibility = form.get("accessibility", "Normal")
-        cloud_pixel_percentage = int(form.get("cloud_pixel_percentage", 100))
+        cloud_pixel_percentage = clamp_cloud_percentage(int(form.get("cloud_pixel_percentage", 100)))
         initial_date = datetime.strptime(form.get("initial_date"), "%Y-%m-%d").date()
         end_date = form.get("end_date")
         selected_date = (
@@ -1202,12 +1208,14 @@ def submit():
 
     form = {
         "accessibility": request.form.get("accessibility", "Normal"),
-        "cloud_pixel_percentage": request.form.get("cloud_pixel_percentage", "100"),
+        "cloud_pixel_percentage": clamp_cloud_percentage(
+            int(request.form.get("cloud_pixel_percentage", "40"))
+        ),
         "initial_date": initial_date,
         "end_date": end_date,
     }
 
-    JOBS[job_id]["cloud"] = int(form["cloud_pixel_percentage"])
+    JOBS[job_id]["cloud"] = form["cloud_pixel_percentage"]
     JOBS[job_id]["accessibility"] = form["accessibility"]
 
     thread = threading.Thread(target=_process_job, args=(job_id, zip_path, form), daemon=True)

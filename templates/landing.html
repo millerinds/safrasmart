@@ -34,7 +34,11 @@
           </div>
           <div>
             <label for="cloud_pixel_percentage">Cobertura de nuvens</label>
-            <input type="range" id="cloud_pixel_percentage" name="cloud_pixel_percentage" min="5" max="100" step="5" value="100" />
+            <input type="range" id="cloud_pixel_percentage" name="cloud_pixel_percentage" min="30" max="100" step="5" value="40" />
+            <div class="slider-meta">
+              <span id="cloud_value">40%</span>
+              <span class="slider-tip">Recomendado: 30-40%</span>
+            </div>
           </div>
           <div>
             <label for="accessibility">Paleta</label>
@@ -59,5 +63,15 @@
         {% endif %}
       </div>
     </div>
+    <script>
+      (function () {
+        const slider = document.getElementById('cloud_pixel_percentage');
+        const label = document.getElementById('cloud_value');
+        if (!slider || !label) return;
+        const update = () => { label.textContent = `${slider.value}%`; };
+        slider.addEventListener('input', update);
+        update();
+      }());
+    </script>
   </body>
 </html>
